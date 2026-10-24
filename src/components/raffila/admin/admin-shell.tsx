@@ -18,6 +18,7 @@ import {
   Search,
   ExternalLink,
   LogOut,
+  FileDown,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -261,6 +262,16 @@ export function AdminShell({ children, title, activeNav }: AdminShellProps) {
 
         <div className="border-t border-white/10 px-3 py-4 space-y-1">
           <a
+            href="/docs/RAFILLA_MASTER_OPERATIONS_MANUAL.docx"
+            download="RAFILLA_MASTER_OPERATIONS_MANUAL.docx"
+            onClick={closeMobile}
+            className="flex items-center gap-3 rounded-2xl bg-white/10 px-3.5 py-2.5 text-xs font-extrabold text-cream transition-colors hover:bg-white/20"
+            title="Download full operational procedures and credentials (.docx)"
+          >
+            <FileDown className="size-4 shrink-0 text-amber-400" />
+            <span className="truncate">Operations Manual (.docx)</span>
+          </a>
+          <a
             href="/"
             onClick={closeMobile}
             className="flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-bold text-cream/65 transition-colors hover:bg-white/10 hover:text-cream"
@@ -324,6 +335,16 @@ export function AdminShell({ children, title, activeNav }: AdminShellProps) {
           </div>
 
           <div className="flex items-center gap-2">
+            <a
+              href="/docs/RAFILLA_MASTER_OPERATIONS_MANUAL.docx"
+              download="RAFILLA_MASTER_OPERATIONS_MANUAL.docx"
+              className="hidden sm:inline-flex items-center gap-2 rounded-full border border-ink/10 bg-cream/70 px-3.5 py-2 text-xs font-extrabold text-ink transition-all hover:bg-white hover:border-ink/20 hover:shadow-xs"
+              title="Download Complete Raffila Operations & Technical Manual (DOCX)"
+            >
+              <FileDown className="size-3.5 text-coral" />
+              <span>Manual (.docx)</span>
+            </a>
+
             <AdminBell />
 
             <DropdownMenu>

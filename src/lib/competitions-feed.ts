@@ -126,11 +126,7 @@ export function isCompetitionConcluded(
 ): boolean {
   if (!c) return false;
   const rawStatus = String((c as any).status ?? "").toUpperCase();
-  if (
-    rawStatus === "COMPLETED" ||
-    rawStatus === "WINNER_SELECTED" ||
-    rawStatus === "CONCLUDED"
-  ) {
+  if (rawStatus === "COMPLETED" || rawStatus === "WINNER_SELECTED" || rawStatus === "CONCLUDED") {
     return true;
   }
   if ((c as any).winningTicketNumber != null || (c as any).winnerTicketNumber != null) {
@@ -370,7 +366,11 @@ export async function getLiveWinners(): Promise<{
     }
 
     const wonCompetitions = comps
-      .filter((c) => (c.winnerDisplayName || c.winnerTicketNumber) && (c.status === "COMPLETED" || c.winnerTicketNumber))
+      .filter(
+        (c) =>
+          (c.winnerDisplayName || c.winnerTicketNumber) &&
+          (c.status === "COMPLETED" || c.winnerTicketNumber),
+      )
       .map((c) => {
         const img = winnerImage(c);
         const valueKobo = winnerMarketValueKobo(c);
