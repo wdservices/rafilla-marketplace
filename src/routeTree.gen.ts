@@ -36,7 +36,9 @@ import { Route as AdminPayoutsRouteImport } from './routes/admin.payouts'
 import { Route as AdminReportsRouteImport } from './routes/admin.reports'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminUsersRouteImport } from './routes/admin.users'
+import { Route as AdminWinnersRouteImport } from './routes/admin.winners'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
+import { Route as ApiNotifyTickRouteImport } from './routes/api.notify-tick'
 import { Route as CompetitionsIndexRouteImport } from './routes/competitions/index'
 import { Route as CompetitionsSlugRouteImport } from './routes/competitions.$slug'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard.index'
@@ -51,6 +53,7 @@ import { Route as DashboardWalletRouteImport } from './routes/dashboard.wallet'
 import { Route as DrawVerificationCampaignRouteImport } from './routes/draw-verification.$campaign'
 import { Route as DrawVerificationSlugRouteImport } from './routes/draw-verification.$slug'
 import { Route as DrawSlugRouteImport } from './routes/draw.$slug'
+import { Route as InviteCodeRouteImport } from './routes/invite.$code'
 import { Route as PartnerIndexRouteImport } from './routes/partner.index'
 import { Route as PartnerAnalyticsRouteImport } from './routes/partner.analytics'
 import { Route as PartnerListingsRouteImport } from './routes/partner.listings'
@@ -197,9 +200,19 @@ const AdminUsersRoute = AdminUsersRouteImport.update({
   path: '/admin/users',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminWinnersRoute = AdminWinnersRouteImport.update({
+  id: '/admin/winners',
+  path: '/admin/winners',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
   path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiNotifyTickRoute = ApiNotifyTickRouteImport.update({
+  id: '/api/notify-tick',
+  path: '/api/notify-tick',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CompetitionsIndexRoute = CompetitionsIndexRouteImport.update({
@@ -271,6 +284,11 @@ const DrawVerificationSlugRoute = DrawVerificationSlugRouteImport.update({
 const DrawSlugRoute = DrawSlugRouteImport.update({
   id: '/draw/$slug',
   path: '/draw/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InviteCodeRoute = InviteCodeRouteImport.update({
+  id: '/invite/$code',
+  path: '/invite/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PartnerIndexRoute = PartnerIndexRouteImport.update({
@@ -352,7 +370,9 @@ export interface FileRoutesByFullPath {
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/winners': typeof AdminWinnersRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/notify-tick': typeof ApiNotifyTickRoute
   '/competitions/$slug': typeof CompetitionsSlugRouteWithChildren
   '/dashboard/competitions': typeof DashboardCompetitionsRoute
   '/dashboard/entries': typeof DashboardEntriesRoute
@@ -365,6 +385,7 @@ export interface FileRoutesByFullPath {
   '/draw-verification/$campaign': typeof DrawVerificationCampaignRoute
   '/draw-verification/$slug': typeof DrawVerificationSlugRoute
   '/draw/$slug': typeof DrawSlugRoute
+  '/invite/$code': typeof InviteCodeRoute
   '/partner/analytics': typeof PartnerAnalyticsRoute
   '/partner/listings': typeof PartnerListingsRoute
   '/partner/profile': typeof PartnerProfileRoute
@@ -405,7 +426,9 @@ export interface FileRoutesByTo {
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/winners': typeof AdminWinnersRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/notify-tick': typeof ApiNotifyTickRoute
   '/competitions/$slug': typeof CompetitionsSlugRouteWithChildren
   '/dashboard/competitions': typeof DashboardCompetitionsRoute
   '/dashboard/entries': typeof DashboardEntriesRoute
@@ -418,6 +441,7 @@ export interface FileRoutesByTo {
   '/draw-verification/$campaign': typeof DrawVerificationCampaignRoute
   '/draw-verification/$slug': typeof DrawVerificationSlugRoute
   '/draw/$slug': typeof DrawSlugRoute
+  '/invite/$code': typeof InviteCodeRoute
   '/partner/analytics': typeof PartnerAnalyticsRoute
   '/partner/listings': typeof PartnerListingsRoute
   '/partner/profile': typeof PartnerProfileRoute
@@ -460,7 +484,9 @@ export interface FileRoutesById {
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/users': typeof AdminUsersRoute
+  '/admin/winners': typeof AdminWinnersRoute
   '/api/health': typeof ApiHealthRoute
+  '/api/notify-tick': typeof ApiNotifyTickRoute
   '/competitions/$slug': typeof CompetitionsSlugRouteWithChildren
   '/dashboard/competitions': typeof DashboardCompetitionsRoute
   '/dashboard/entries': typeof DashboardEntriesRoute
@@ -473,6 +499,7 @@ export interface FileRoutesById {
   '/draw-verification/$campaign': typeof DrawVerificationCampaignRoute
   '/draw-verification/$slug': typeof DrawVerificationSlugRoute
   '/draw/$slug': typeof DrawSlugRoute
+  '/invite/$code': typeof InviteCodeRoute
   '/partner/analytics': typeof PartnerAnalyticsRoute
   '/partner/listings': typeof PartnerListingsRoute
   '/partner/profile': typeof PartnerProfileRoute
@@ -516,7 +543,9 @@ export interface FileRouteTypes {
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/users'
+    | '/admin/winners'
     | '/api/health'
+    | '/api/notify-tick'
     | '/competitions/$slug'
     | '/dashboard/competitions'
     | '/dashboard/entries'
@@ -529,6 +558,7 @@ export interface FileRouteTypes {
     | '/draw-verification/$campaign'
     | '/draw-verification/$slug'
     | '/draw/$slug'
+    | '/invite/$code'
     | '/partner/analytics'
     | '/partner/listings'
     | '/partner/profile'
@@ -569,7 +599,9 @@ export interface FileRouteTypes {
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/users'
+    | '/admin/winners'
     | '/api/health'
+    | '/api/notify-tick'
     | '/competitions/$slug'
     | '/dashboard/competitions'
     | '/dashboard/entries'
@@ -582,6 +614,7 @@ export interface FileRouteTypes {
     | '/draw-verification/$campaign'
     | '/draw-verification/$slug'
     | '/draw/$slug'
+    | '/invite/$code'
     | '/partner/analytics'
     | '/partner/listings'
     | '/partner/profile'
@@ -623,7 +656,9 @@ export interface FileRouteTypes {
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/users'
+    | '/admin/winners'
     | '/api/health'
+    | '/api/notify-tick'
     | '/competitions/$slug'
     | '/dashboard/competitions'
     | '/dashboard/entries'
@@ -636,6 +671,7 @@ export interface FileRouteTypes {
     | '/draw-verification/$campaign'
     | '/draw-verification/$slug'
     | '/draw/$slug'
+    | '/invite/$code'
     | '/partner/analytics'
     | '/partner/listings'
     | '/partner/profile'
@@ -678,7 +714,9 @@ export interface RootRouteChildren {
   AdminReportsRoute: typeof AdminReportsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminUsersRoute: typeof AdminUsersRoute
+  AdminWinnersRoute: typeof AdminWinnersRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  ApiNotifyTickRoute: typeof ApiNotifyTickRoute
   DashboardCompetitionsRoute: typeof DashboardCompetitionsRoute
   DashboardEntriesRoute: typeof DashboardEntriesRoute
   DashboardProfileRoute: typeof DashboardProfileRoute
@@ -690,6 +728,7 @@ export interface RootRouteChildren {
   DrawVerificationCampaignRoute: typeof DrawVerificationCampaignRoute
   DrawVerificationSlugRoute: typeof DrawVerificationSlugRoute
   DrawSlugRoute: typeof DrawSlugRoute
+  InviteCodeRoute: typeof InviteCodeRoute
   PartnerAnalyticsRoute: typeof PartnerAnalyticsRoute
   PartnerListingsRoute: typeof PartnerListingsRoute
   PartnerProfileRoute: typeof PartnerProfileRoute
@@ -893,11 +932,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/winners': {
+      id: '/admin/winners'
+      path: '/admin/winners'
+      fullPath: '/admin/winners'
+      preLoaderRoute: typeof AdminWinnersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/health': {
       id: '/api/health'
       path: '/api/health'
       fullPath: '/api/health'
       preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/notify-tick': {
+      id: '/api/notify-tick'
+      path: '/api/notify-tick'
+      fullPath: '/api/notify-tick'
+      preLoaderRoute: typeof ApiNotifyTickRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/competitions/': {
@@ -996,6 +1049,13 @@ declare module '@tanstack/react-router' {
       path: '/draw/$slug'
       fullPath: '/draw/$slug'
       preLoaderRoute: typeof DrawSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invite/$code': {
+      id: '/invite/$code'
+      path: '/invite/$code'
+      fullPath: '/invite/$code'
+      preLoaderRoute: typeof InviteCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/partner/': {
@@ -1134,7 +1194,9 @@ const rootRouteChildren: RootRouteChildren = {
   AdminReportsRoute: AdminReportsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminUsersRoute: AdminUsersRoute,
+  AdminWinnersRoute: AdminWinnersRoute,
   ApiHealthRoute: ApiHealthRoute,
+  ApiNotifyTickRoute: ApiNotifyTickRoute,
   DashboardCompetitionsRoute: DashboardCompetitionsRoute,
   DashboardEntriesRoute: DashboardEntriesRoute,
   DashboardProfileRoute: DashboardProfileRoute,
@@ -1146,6 +1208,7 @@ const rootRouteChildren: RootRouteChildren = {
   DrawVerificationCampaignRoute: DrawVerificationCampaignRoute,
   DrawVerificationSlugRoute: DrawVerificationSlugRoute,
   DrawSlugRoute: DrawSlugRoute,
+  InviteCodeRoute: InviteCodeRoute,
   PartnerAnalyticsRoute: PartnerAnalyticsRoute,
   PartnerListingsRoute: PartnerListingsRoute,
   PartnerProfileRoute: PartnerProfileRoute,

@@ -4,6 +4,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button";
 import { CartButton } from "@/components/raffila/cart/cart-button";
+import { NotificationBell } from "@/components/raffila/notification-bell";
 import { cn, formatNaira } from "@/lib/utils";
 import { useAuthActions, useAuthSession } from "@/hooks/useAuthSession";
 import { useRewardPool } from "@/hooks/useRewardPool";
@@ -94,6 +95,7 @@ export function SiteHeader() {
           </span>
           {isAuthenticated ? (
             <div className="flex items-center gap-2">
+              <NotificationBell />
               <CartButton />
               <Button asChild variant="outline" size="sm">
                 <Link
@@ -139,6 +141,7 @@ export function SiteHeader() {
               {formatNaira(rewardPool.totalKobo)}
             </span>
           </span>
+          {isAuthenticated && <NotificationBell />}
           <CartButton />
           {isAuthenticated ? (
             <Button asChild variant="outline" size="sm">

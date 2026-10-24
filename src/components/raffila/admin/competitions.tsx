@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AdminDrawControlRoom } from "./admin-draw-control-room";
+import { slugifyTitle } from "@/lib/competitions-feed";
 
 import mercedesImage from "@/assets/raffila-mercedes.jpg";
 import techBundleImage from "@/assets/raffila-tech-bundle.jpg";
@@ -245,7 +246,7 @@ const statusTone: Record<CompStatus, string> = {
 
 const STEP_LABELS = [
   "Basics",
-  "Asset",
+  "Prize",
   "Entry config",
   "Schedule",
   "Visibility",
@@ -312,7 +313,7 @@ function emptyForm(): FormState {
     liveDelay: "60",
     featured: true,
     publicResults: true,
-    status: "DRAFT",
+    status: "LIVE",
   };
 }
 
@@ -667,7 +668,7 @@ export function AdminCompetitionsPage() {
     }, 220);
   }
 
-  async function submitDraft() {
+  async function submitDraft(statusOverride?: CompStatus) {
     setSubmitting(true);
     try {
       const { validateCompetitionDates } = await import("@/lib/competitions-feed");
@@ -683,8 +684,19 @@ export function AdminCompetitionsPage() {
         setSubmitting(false);
         return;
       }
-      const compId =
-        form.slug || form.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || `comp-${Date.now()}`;
+      const status = statusOverride ?? form.status;
+      const baseSlug = slugifyTitle(form.name) || `comp-${Date.now().toString(36)}`;
+      // Create: slug is the Firestore doc ID — never overwrite an existing
+      // competition, so suffix until we find a free one. Edit: keep the
+      // stored slug untouched (the doc ID is editId).
+      let compId = form.slug || baseSlug;
+      if (modalMode !== "edit") {
+        for (let i = 2; i <= 50; i++) {
+          const existing = await getDoc(doc(db, "competitions", compId));
+          if (!existing.exists()) break;
+          compId = i === 2 ? `${baseSlug}-2` : `${baseSlug}-${i}`;
+        }
+      }
       const imageData = form.assets.length > 0 ? form.assets[0] : "";
 
       const payload = {
@@ -693,7 +705,9 @@ export function AdminCompetitionsPage() {
         category: form.category,
         partner: form.partner,
         description: form.description,
-        assetName: form.assetName,
+        // Single canonical name is the competition title; assetName is kept
+        // in sync for legacy read fallbacks only (no admin UI for it).
+        assetName: form.name || form.assetName,
         image: imageData,
         images: form.assets,
         marketValueKobo: Math.round(Number(form.marketValue) * 100),
@@ -706,7 +720,7 @@ export function AdminCompetitionsPage() {
         liveDelay: Number(form.liveDelay),
         featured: form.featured,
         publicResults: form.publicResults,
-        status: form.status,
+        status,
         partnerId: form.assignedPartnerId,
         partnerAssetId: form.partnerAssetId,
         partnerRevenueSharePct: form.partnerRevenueSharePct,
@@ -744,10 +758,11 @@ export function AdminCompetitionsPage() {
       }
 
       setSubmitting(false);
+      setForm((f) => ({ ...f, status }));
       setSubmitted(true);
       setDrawRefreshKey((k) => k + 1);
       toast.success(`${modalMode === "edit" ? "Competition updated" : "Competition created"}`, {
-        description: `${form.assetName || form.name || "Untitled competition"} · saved as ${form.status} · ${compId}`,
+        description: `${form.name || "Untitled competition"} · saved as ${status} · ${compId}`,
       });
     } catch (err) {
       setSubmitting(false);
@@ -2237,7 +2252,7 @@ export function AdminCompetitionsPage() {
                   <Button
                     variant="outline"
                     onClick={() => {
-                      const slug = form.slug || form.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+                      const slug = form.slug || slugifyTitle(form.name);
                       closeModal();
                       void navigate({ to: "/competitions/$slug", params: { slug } });
                     }}
@@ -2295,25 +2310,25 @@ export function AdminCompetitionsPage() {
                       <Input
                         placeholder="e.g. 2026 Mercedes-Benz C-Class Grand Prize"
                         value={form.name}
-                        onChange={(e) => setForm({ ...form, name: e.target.value })}
+                        onChange={(e) => {
+                          const name = e.target.value;
+                          setForm((f) => ({
+                            ...f,
+                            name,
+                            // The URL slug is derived from the name in the
+                            // background — admins never edit it directly. On
+                            // edit the slug is the Firestore doc ID and must
+                            // never change (checkout/draws key off it).
+                            slug: modalMode === "edit" ? f.slug : slugifyTitle(name),
+                          }));
+                        }}
                         className="h-12 rounded-2xl border-0 bg-white px-4 text-sm font-bold text-ink placeholder:text-ink/40 ring-1 ring-ink/10 focus-visible:ring-coral"
                       />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-ink/50">
-                        URL slug
-                      </Label>
-                      <Input
-                        placeholder="mercedes-c-class-2026"
-                        value={form.slug}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
-                          })
-                        }
-                        className="h-12 rounded-2xl border-0 bg-white px-4 text-sm font-bold text-ink placeholder:text-ink/40 ring-1 ring-ink/10 focus-visible:ring-coral"
-                      />
+                      {modalMode !== "edit" && form.slug && (
+                        <p className="text-[11px] font-bold text-ink/45">
+                          URL: /competitions/{form.slug}
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-ink/50">
@@ -2352,17 +2367,6 @@ export function AdminCompetitionsPage() {
 
                 {stepIdx === 1 && (
                   <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                    <div className="sm:col-span-2 space-y-2">
-                      <Label className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-ink/50">
-                        Asset / prize name
-                      </Label>
-                      <Input
-                        placeholder="Mercedes-Benz C-Class 2025 · brand new, full warranty"
-                        value={form.assetName}
-                        onChange={(e) => setForm({ ...form, assetName: e.target.value })}
-                        className="h-12 rounded-2xl border-0 bg-white px-4 text-sm font-bold text-ink placeholder:text-ink/40 ring-1 ring-ink/10 focus-visible:ring-coral"
-                      />
-                    </div>
                     <div className="sm:col-span-2">
                       <AssetUploader
                         value={form.assets}
@@ -2801,8 +2805,8 @@ export function AdminCompetitionsPage() {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    setSubmitted(true);
-                    toast.success("Draft saved", { description: "Saved without publishing." });
+                    setForm((f) => ({ ...f, status: "DRAFT" }));
+                    void submitDraft("DRAFT");
                   }}
                   disabled={submitting}
                 >
@@ -2817,7 +2821,11 @@ export function AdminCompetitionsPage() {
                     Continue <ChevronRight className="size-4" />
                   </Button>
                 ) : (
-                  <Button variant="primary" onClick={submitDraft} disabled={submitting}>
+                  <Button
+                    variant="primary"
+                    onClick={() => void submitDraft()}
+                    disabled={submitting}
+                  >
                     {submitting ? (
                       <>
                         <Sparkles className="size-4 animate-pulse" />{" "}

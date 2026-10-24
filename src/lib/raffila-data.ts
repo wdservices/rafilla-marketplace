@@ -194,6 +194,7 @@ export const ANALYTICS_EVENTS = [
   "payment_fail",
   "support_open",
   "my_entries_view",
+  "invite_view",
 ] as const;
 
 export function trackEvent(

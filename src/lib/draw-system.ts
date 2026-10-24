@@ -22,6 +22,14 @@ import {
 import { db } from "./firebase";
 import { logActivity } from "./activity-log";
 import { getSession } from "./auth-store";
+import {
+  broadcastIds,
+  broadcastMailDoc,
+  broadcastNotifDoc,
+  personalNotifDoc,
+  pushOutboxDoc,
+  winnerAnnounceEmail,
+} from "./notify";
 
 /* ============================================================================
  * RAFFILLA ADMIN RAFFLE DRAW SYSTEM
@@ -879,18 +887,102 @@ export async function executeDrawWorkflow(
       const compSnap = await getDoc(compRef);
       const comp = compSnap.exists() ? (compSnap.data() as Record<string, unknown>) : {};
       const competitionTitle = String(comp["title"] ?? comp["assetName"] ?? competitionId);
-      await addDoc(collection(db, "mail"), {
-        to: winner.userEmail,
-        createdAt: serverTimestamp(),
-        message: {
-          subject: `You won: ${competitionTitle} (ticket #${winner.ticketNumber})`,
-          text: `Congratulations ${winner.userName}!\n\nYour ticket #${winner.ticketNumber} won "${competitionTitle}".\n\nDraw ID: ${verificationReference}\nDraw date: ${completedAt}\n\nTo claim your prize, sign in to Raffila and open My Entries, then follow the prize-claim instructions. Our team may contact you to verify your details.\n\n— Team Raffila`,
-          html: `<p>Congratulations <strong>${winner.userName}</strong>!</p><p>Your ticket <strong>#${winner.ticketNumber}</strong> won "<strong>${competitionTitle}</strong>".</p><p>Draw ID: ${verificationReference}<br/>Draw date: ${completedAt}</p><p>To claim your prize, sign in to Raffila and open <strong>My Entries</strong>, then follow the prize-claim instructions. Our team may contact you to verify your details.</p><p>— Team Raffila</p>`,
+      await setDoc(
+        doc(db, "mail", `win-mail-${competitionId}-${winner.ticketNumber}`),
+        {
+          to: winner.userEmail,
+          kind: "winner_personal",
+          delivery: null,
+          createdAt: serverTimestamp(),
+          message: {
+            subject: `You won: ${competitionTitle} (ticket #${winner.ticketNumber})`,
+            text: `Congratulations ${winner.userName}!\n\nYour ticket #${winner.ticketNumber} won "${competitionTitle}".\n\nDraw ID: ${verificationReference}\nDraw date: ${completedAt}\n\nTo claim your prize, sign in to Raffila and open My Entries, then follow the prize-claim instructions. Our team may contact you to verify your details.\n\n— Team Raffila`,
+            html: `<p>Congratulations <strong>${winner.userName}</strong>!</p><p>Your ticket <strong>#${winner.ticketNumber}</strong> won "<strong>${competitionTitle}</strong>".</p><p>Draw ID: ${verificationReference}<br/>Draw date: ${completedAt}</p><p>To claim your prize, sign in to Raffila and open <strong>My Entries</strong>, then follow the prize-claim instructions. Our team may contact you to verify your details.</p><p>— Team Raffila</p>`,
+          },
         },
-      });
+        { merge: true },
+      );
     } catch {
       // best-effort
     }
+  }
+
+  // Winner broadcasts: in-app feed for everyone, broadcast email (honours the
+  // admin email switch), device push, plus the winner's own in-app notice.
+  // Deterministic ids + merge writes make a resumed/re-run draw a no-op.
+  try {
+    const origin =
+      (typeof window !== "undefined" && window.location.origin) || "https://raffila.com";
+    const compForNotifySnap = await getDoc(compRef);
+    const compForNotify = compForNotifySnap.exists()
+      ? (compForNotifySnap.data() as Record<string, unknown>)
+      : {};
+    const title = String(compForNotify["title"] ?? compForNotify["assetName"] ?? competitionId);
+    const cfgSnap = await getDoc(doc(db, "platformSettings", "raffila_config")).catch(() => null);
+    const notifyCfg =
+      ((cfgSnap?.data() as Record<string, unknown> | undefined)?.["notifications"] as
+        Record<string, unknown> | undefined) ?? {};
+    const ids = broadcastIds("winner", competitionId);
+    const href = `/competitions/${competitionId}/draw`;
+    const body = `${winner.userName} won ${title} with ticket #${winner.ticketNumber}`;
+    if (notifyCfg["inapp"] !== false) {
+      await setDoc(
+        doc(db, "notifications", ids.notification),
+        broadcastNotifDoc({
+          category: "winner",
+          title: `We have a winner: ${title}`,
+          body,
+          href,
+          createdAt: completedAt,
+        }),
+        { merge: true },
+      ).catch(() => {});
+    }
+    if (notifyCfg["email"] !== false) {
+      await setDoc(
+        doc(db, "mail", ids.mail),
+        broadcastMailDoc({
+          kind: "winner",
+          message: winnerAnnounceEmail({
+            title,
+            slug: competitionId,
+            winnerName: winner.userName,
+            ticketNumber: winner.ticketNumber,
+            origin,
+          }),
+          createdAt: completedAt,
+        }),
+        { merge: true },
+      ).catch(() => {});
+    }
+    if (ids.push) {
+      await setDoc(
+        doc(db, "pushOutbox", ids.push),
+        pushOutboxDoc({
+          title: `We have a winner: ${title}`,
+          body,
+          url: href,
+          createdAt: completedAt,
+        }),
+        { merge: true },
+      ).catch(() => {});
+    }
+    if (winner.userId) {
+      await setDoc(
+        doc(db, "notifications", `win-${competitionId}-${winner.ticketNumber}`),
+        personalNotifDoc({
+          userId: winner.userId,
+          category: "winner",
+          title: `You won ${title}!`,
+          body: `Ticket #${winner.ticketNumber} was drawn as the winner. Open My Entries to claim your prize.`,
+          href: "/dashboard/entries",
+          createdAt: completedAt,
+        }),
+        { merge: true },
+      ).catch(() => {});
+    }
+  } catch {
+    // best-effort
   }
 
   void logActivity({

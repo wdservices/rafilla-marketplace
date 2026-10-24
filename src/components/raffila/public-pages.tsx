@@ -128,7 +128,13 @@ import { Textarea } from "@/components/ui/textarea";
  * fewer than three competitions the shelf shrinks, and with none it hides
  * instead of crashing on an undefined entry).
  */
-function LiveCompetitionsSection({ competitions }: { competitions: Competition[] }) {
+function LiveCompetitionsSection({
+  competitions,
+  onEnterDraw,
+}: {
+  competitions: Competition[];
+  onEnterDraw?: (slug: string, qty: number) => void;
+}) {
   if (competitions.length === 0) return null;
   return (
     <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
@@ -146,10 +152,17 @@ function LiveCompetitionsSection({ competitions }: { competitions: Competition[]
         {competitions.slice(0, 3).map((c, i) =>
           i === 2 ? (
             <div key={c.slug} className="hidden lg:block">
-              <CompetitionCard competition={c} />
+              <CompetitionCard
+                competition={c}
+                {...(onEnterDraw ? { onEnterDraw: (qty: number) => onEnterDraw(c.slug, qty) } : {})}
+              />
             </div>
           ) : (
-            <CompetitionCard key={c.slug} competition={c} />
+            <CompetitionCard
+              key={c.slug}
+              competition={c}
+              {...(onEnterDraw ? { onEnterDraw: (qty: number) => onEnterDraw(c.slug, qty) } : {})}
+            />
           ),
         )}
       </div>
@@ -162,6 +175,12 @@ export function HomePage() {
   const { winners } = useWinners();
   const rewardPool = useRewardPool();
   const carousel = useFeaturedCarousel();
+  const [modalSlug, setModalSlug] = useState<string | null>(null);
+  const [modalQty, setModalQty] = useState<number>(1);
+  const openPurchase = (slug: string, qty: number) => {
+    setModalQty(qty);
+    setModalSlug(slug);
+  };
   return (
     <div>
       <section className="mx-auto max-w-7xl px-4 pb-8 pt-8 sm:px-6 sm:pt-12 lg:px-8 lg:pb-12">
@@ -293,11 +312,11 @@ export function HomePage() {
         </div>
       </section>
 
-      <PopularUnder1000 competitions={activeCompetitions} />
+      <PopularUnder1000 competitions={activeCompetitions} onEnterDraw={openPurchase} />
 
       <TrustStrip />
 
-      <LiveCompetitionsSection competitions={activeCompetitions} />
+      <LiveCompetitionsSection competitions={activeCompetitions} onEnterDraw={openPurchase} />
 
       <BrowseByNeed competitions={activeCompetitions} />
 
@@ -420,6 +439,12 @@ export function HomePage() {
           </div>
         </div>
       </section>
+      <TicketPurchaseModal
+        open={!!modalSlug}
+        onClose={() => setModalSlug(null)}
+        competitionSlug={modalSlug ?? ""}
+        initialQuantity={modalQty}
+      />
     </div>
   );
 }
@@ -1152,7 +1177,12 @@ export function CompetitionDetailPage() {
   const partnerCompetitions = useMemo(
     () =>
       competitions
-        .filter((c) => c.partner === competition?.partner && c.slug !== competition?.slug && !isCompetitionConcluded(c))
+        .filter(
+          (c) =>
+            c.partner === competition?.partner &&
+            c.slug !== competition?.slug &&
+            !isCompetitionConcluded(c),
+        )
         .slice(0, 3),
     [competitions, competition?.partner, competition?.slug],
   );
@@ -1252,7 +1282,11 @@ export function CompetitionDetailPage() {
               </p>
             </div>
             {isConcluded ? (
-              <Button asChild size="sm" className="bg-[#0A261B] hover:bg-[#133E2B] text-cream font-extrabold">
+              <Button
+                asChild
+                size="sm"
+                className="bg-[#0A261B] hover:bg-[#133E2B] text-cream font-extrabold"
+              >
                 <Link to="/competitions/$slug/draw" params={{ slug: competition.slug }}>
                   🎯 Watch Draw Replay
                 </Link>
@@ -1325,27 +1359,36 @@ export function CompetitionDetailPage() {
                       DRAW CONCLUDED
                     </span>
                     <span className="text-xs font-mono font-bold text-cream/70">
-                      Ticket #{competition.winnerTicketNumber || competition.winningTicketNumber || "—"}
+                      Ticket #
+                      {competition.winnerTicketNumber || competition.winningTicketNumber || "—"}
                     </span>
                   </div>
                   <p className="mt-1 font-display text-base sm:text-lg font-extrabold text-white">
                     Winner: {competition.winnerDisplayName || "Verified Winner"}
                   </p>
                   <p className="text-xs text-cream/75">
-                    This draw has concluded and results are publicly verifiable. No new entries can be purchased.
+                    This draw has concluded and results are publicly verifiable. No new entries can
+                    be purchased.
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button asChild size="sm" className="bg-[#D4AF37] hover:bg-[#E5C158] text-[#0A261B] font-extrabold">
+                <Button
+                  asChild
+                  size="sm"
+                  className="bg-[#D4AF37] hover:bg-[#E5C158] text-[#0A261B] font-extrabold"
+                >
                   <Link to="/competitions/$slug/draw" params={{ slug: competition.slug }}>
                     🎯 Watch Draw Experience
                   </Link>
                 </Button>
-                <Button asChild variant="outline" size="sm" className="border-cream/30 text-cream hover:bg-cream/10 font-bold">
-                  <Link to="/winners">
-                    🏆 Winners Circle
-                  </Link>
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="border-cream/30 text-cream hover:bg-cream/10 font-bold"
+                >
+                  <Link to="/winners">🏆 Winners Circle</Link>
                 </Button>
               </div>
             </div>
@@ -1436,7 +1479,8 @@ export function CompetitionDetailPage() {
                           Winner: {competition.winnerDisplayName || "Verified Winner"}
                         </p>
                         <p className="font-mono text-xs font-bold text-ink/70">
-                          Winning Ticket: #{competition.winnerTicketNumber || competition.winningTicketNumber || "—"}
+                          Winning Ticket: #
+                          {competition.winnerTicketNumber || competition.winningTicketNumber || "—"}
                         </p>
                       </div>
                     </div>
@@ -1452,9 +1496,7 @@ export function CompetitionDetailPage() {
                   </Button>
                   <div className="grid grid-cols-2 gap-2">
                     <Button asChild variant="outline" size="sm" className="w-full">
-                      <Link to="/winners">
-                        🏆 Winners Circle
-                      </Link>
+                      <Link to="/winners">🏆 Winners Circle</Link>
                     </Button>
                     <Button asChild variant="outline" size="sm" className="w-full">
                       <Link to="/draw-verification/$slug" params={{ slug: competition.slug }}>
@@ -1477,7 +1519,13 @@ export function CompetitionDetailPage() {
                         {`${safeQty} × ${formatNaira(competition.entryPrice)} entr${safeQty === 1 ? "y" : "ies"}`}
                       </p>
                     </div>
-                    <QuantityStepper value={safeQty} onChange={setQty} min={1} max={maxQty} size="md" />
+                    <QuantityStepper
+                      value={safeQty}
+                      onChange={setQty}
+                      min={1}
+                      max={maxQty}
+                      size="md"
+                    />
                     <div className="text-left sm:text-right">
                       <p className="text-[10px] font-extrabold uppercase tracking-wider text-ink/40">
                         Total
@@ -1527,7 +1575,10 @@ export function CompetitionDetailPage() {
                   <p className="text-center text-xs font-bold text-ink/45">
                     Tickets reserved for 5 minutes · Wallet &amp; Referrals only · Limit {maxQty}{" "}
                     tickets per draw ·{" "}
-                    <Link to="/faq" className="font-extrabold text-coral underline underline-offset-2">
+                    <Link
+                      to="/faq"
+                      className="font-extrabold text-coral underline underline-offset-2"
+                    >
                       Get help with this entry
                     </Link>
                   </p>
@@ -2549,29 +2600,36 @@ export function ContactPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <ContactInfoCard
               icon={<Mail className="size-5" />}
-              title="Email us"
-              value="hello@raffila.com"
-              href="mailto:hello@raffila.com"
+              title="Email support"
+              value="support@raffila.com"
+              href="mailto:support@raffila.com"
               tone="coral"
+            />
+            <ContactInfoCard
+              icon={<Mail className="size-5" />}
+              title="Helpdesk"
+              value="helpdesk@raffila.com"
+              href="mailto:helpdesk@raffila.com"
+              tone="mint"
             />
             <ContactInfoCard
               icon={<Phone className="size-5" />}
               title="Phone support"
               value="+234 800 RAFFILA"
               href="tel:+2348007233452"
-              tone="mint"
+              tone="lemon"
             />
             <ContactInfoCard
               icon={<MapPin className="size-5" />}
               title="HQ — Lagos, NG"
               value="Victoria Island, Lagos"
-              tone="lemon"
+              tone="lilac"
             />
             <ContactInfoCard
               icon={<Clock3 className="size-5" />}
               title="Support hours"
               value="Mon–Sat · 9am–7pm WAT"
-              tone="lilac"
+              tone="coral"
             />
           </div>
 
@@ -2591,7 +2649,7 @@ export function ContactPage() {
                 <Instagram className="size-3.5" /> @raffila
               </a>
               <a
-                href="mailto:hello@raffila.com"
+                href="mailto:support@raffila.com"
                 className="inline-flex items-center gap-1.5 rounded-full bg-cream px-4 py-2 text-xs font-extrabold text-ink transition-colors hover:bg-cream/90"
               >
                 <Mail className="size-3.5" /> Newsletter
@@ -2987,7 +3045,13 @@ export function AuthPreviewPage() {
   );
 }
 
-function PopularUnder1000({ competitions }: { competitions: Competition[] }) {
+function PopularUnder1000({
+  competitions,
+  onEnterDraw,
+}: {
+  competitions: Competition[];
+  onEnterDraw?: (slug: string, qty: number) => void;
+}) {
   const affordable = competitions.filter((c) => c.entryPrice <= 1000 * 100).slice(0, 6);
   useEffect(() => {
     if (affordable.length > 0) trackEvent("popular_under_1000_view", { count: affordable.length });
@@ -3010,7 +3074,11 @@ function PopularUnder1000({ competitions }: { competitions: Competition[] }) {
       </p>
       <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {affordable.map((c) => (
-          <CompetitionCard key={c.slug} competition={c} />
+          <CompetitionCard
+            key={c.slug}
+            competition={c}
+            {...(onEnterDraw ? { onEnterDraw: (qty: number) => onEnterDraw(c.slug, qty) } : {})}
+          />
         ))}
       </div>
     </section>
@@ -3375,9 +3443,9 @@ export function TrustSafetyPage() {
       <div className="mt-8 rounded-[28px] bg-lemon/40 p-6 ring-1 ring-ink/5 sm:p-8">
         <h2 className="font-display text-xl font-extrabold text-ink">Responsible participation</h2>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink/65">
-          Raffila shows the closing date, total cost and clear status. We
-          avoid artificial scarcity, flashing urgency and repeated buy-more prompts. You can set a
-          voluntary weekly spending alert from your account.
+          Raffila shows the closing date, total cost and clear status. We avoid artificial scarcity,
+          flashing urgency and repeated buy-more prompts. You can set a voluntary weekly spending
+          alert from your account.
         </p>
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
           <Button asChild variant="dark" size="md" className="min-h-11">
@@ -3871,6 +3939,12 @@ export function TermsAndConditionsPage() {
                     Customer support
                   </p>
                   <p className="mt-2 font-bold text-ink">support@raffila.com</p>
+                </div>
+                <div className="rounded-2xl bg-paper p-4 ring-1 ring-ink/5">
+                  <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-ink/45">
+                    Helpdesk
+                  </p>
+                  <p className="mt-2 font-bold text-ink">helpdesk@raffila.com</p>
                 </div>
                 <div className="rounded-2xl bg-paper p-4 ring-1 ring-ink/5">
                   <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-ink/45">

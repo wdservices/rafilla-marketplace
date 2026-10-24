@@ -8,7 +8,6 @@ import {
   where,
   type Timestamp,
 } from "firebase/firestore";
-import * as XLSX from "xlsx";
 import { db } from "@/lib/firebase";
 import { ACTIVITY_EVENTS, type ActivityEventType, type ActivityRisk } from "@/lib/activity-log";
 import { AdminShell } from "./admin-shell";
@@ -379,24 +378,23 @@ export function AdminAuditLogsPage() {
     }));
   }
 
-  const exportExcel = (logs: AuditLog[], filename: string) => {
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(logsToSheet(logs));
-    ws["!cols"] = [
-      { wch: 20 },
-      { wch: 22 },
-      { wch: 28 },
-      { wch: 22 },
-      { wch: 10 },
-      { wch: 22 },
-      { wch: 16 },
-      { wch: 24 },
-      { wch: 10 },
-      { wch: 44 },
-      { wch: 50 },
+  const exportExcel = async (logs: AuditLog[], filename: string) => {
+    // Lazy: write-excel-file only loads when an admin exports a spreadsheet.
+    const { default: writeXlsxFile } = await import("write-excel-file/browser");
+    const rows = logsToSheet(logs);
+    const keys = Object.keys(rows[0] ?? {}) as Array<keyof (typeof rows)[number]>;
+    const sheetData = [
+      keys.map((key) => ({ value: key as string, fontWeight: true })),
+      ...rows.map((row) =>
+        keys.map((key) => ({
+          value: typeof row[key] === "number" ? row[key] : String(row[key] ?? ""),
+        })),
+      ),
     ];
-    XLSX.utils.book_append_sheet(wb, ws, "Activity");
-    XLSX.writeFile(wb, filename);
+    await writeXlsxFile(sheetData, {
+      sheet: "Activity",
+      columns: [20, 22, 28, 22, 10, 22, 16, 24, 10, 44, 50].map((width) => ({ width })),
+    }).toFile(filename);
   };
 
   // ---- Per-user consolidated history ----
@@ -496,9 +494,12 @@ export function AdminAuditLogsPage() {
             <Button
               variant="outline"
               className="rounded-full"
-              onClick={() =>
-                exportExcel(filtered, `raffila-audit-${new Date().toISOString().slice(0, 10)}.xlsx`)
-              }
+              onClick={() => {
+                void exportExcel(
+                  filtered,
+                  `raffila-audit-${new Date().toISOString().slice(0, 10)}.xlsx`,
+                );
+              }}
             >
               <Download className="w-4 h-4 mr-2" /> Export Excel
             </Button>
@@ -1004,13 +1005,14 @@ export function AdminAuditLogsPage() {
               variant="primary"
               className="rounded-full"
               disabled={historyLogs.length === 0}
-              onClick={() =>
-                historyActor &&
-                exportExcel(
-                  historyLogs,
-                  `raffila-${historyActor.actorName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-history-${new Date().toISOString().slice(0, 10)}.xlsx`,
-                )
-              }
+              onClick={() => {
+                if (historyActor) {
+                  void exportExcel(
+                    historyLogs,
+                    `raffila-${historyActor.actorName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-history-${new Date().toISOString().slice(0, 10)}.xlsx`,
+                  );
+                }
+              }}
             >
               <Download className="w-4 h-4 mr-2" /> Download Excel
             </Button>

@@ -6,6 +6,7 @@ const snapshotHandler: { fn: null | SnapCb } = { fn: null };
 
 vi.mock("firebase/firestore", () => ({
   collection: vi.fn(() => ({})),
+  doc: vi.fn(() => ({})),
   query: vi.fn(() => ({})),
   orderBy: vi.fn(() => ({})),
   limit: vi.fn(() => ({})),

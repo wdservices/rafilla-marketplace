@@ -6,6 +6,8 @@ import {
   Scripts,
   useLocation,
   redirect,
+  type ErrorComponentProps,
+  type ParsedLocation,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 
@@ -20,6 +22,7 @@ import { CartDrawer } from "@/components/raffila/cart/cart-drawer";
 import { Toaster } from "@/components/ui/sonner";
 import { ErrorPage } from "@/components/raffila/error-page";
 import { canAccessRoute } from "@/lib/auth-store";
+import { captureReferralFromLocation } from "@/lib/referral-capture";
 
 /** Baked at release build time; empty in dev. Visible in view-source. */
 const BUILD_ID = String(
@@ -74,16 +77,18 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+function ErrorComponent({ error, reset }: ErrorComponentProps) {
   console.error(error);
   useEffect(() => {
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
-  return <ErrorPage error={error} reset={reset} />;
+  return (
+    <ErrorPage error={error instanceof Error ? error : new Error(String(error))} reset={reset} />
+  );
 }
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  beforeLoad: ({ location }) => {
+  beforeLoad: ({ location }: { location: ParsedLocation }) => {
     const gate = canAccessRoute({ pathname: location.pathname });
     if (!gate.allowed) {
       throw redirect({
@@ -111,6 +116,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { name: "theme-color", content: "#0E1021" },
       { name: "author", content: "Raffila" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "default" },
+      { name: "apple-mobile-web-app-title", content: "Raffila" },
     ],
     links: [
       {
@@ -124,6 +132,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: "https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap",
       },
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "apple-touch-icon", href: "/Raffila-logo.png" },
     ],
   }),
   shellComponent: RootShell,
@@ -150,6 +160,13 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const location = useLocation();
   const pathname = location.pathname;
+
+  // Capture referral attribution from ?ref= on any landing URL (the dedicated
+  // /invite/$code page saves its own code too). Cheap and idempotent.
+  useEffect(() => {
+    captureReferralFromLocation();
+  }, [pathname, location.searchStr]);
+
   const hidePublicChrome =
     pathname === "/auth" ||
     pathname.startsWith("/auth/") ||

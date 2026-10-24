@@ -29,6 +29,17 @@ export function SiteFooter() {
               <Mail className="size-3.5 text-raf-gold" /> Secure accounts
             </span>
           </div>
+          <div className="mt-5 space-y-1.5 text-sm font-bold text-cream/70">
+            <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-cream/40">
+              Contact
+            </p>
+            <a href="mailto:support@raffila.com" className="block hover:text-cream break-all">
+              support@raffila.com
+            </a>
+            <a href="mailto:helpdesk@raffila.com" className="block hover:text-cream break-all">
+              helpdesk@raffila.com
+            </a>
+          </div>
         </div>
         <div className="grid w-full grid-cols-2 gap-x-6 gap-y-3 text-sm font-bold text-cream/65 xs:grid-cols-2 sm:grid-cols-3 lg:mt-0 lg:max-w-xl lg:grid-cols-3">
           <Link to="/competitions" className="hover:text-cream break-words">
@@ -66,12 +77,12 @@ export function SiteFooter() {
           <Link to="/privacy-policy" className="hover:text-cream break-words">
             Privacy
           </Link>
-          <a
-            href="mailto:hello@raffila.com"
+          <Link
+            to="/contact"
             className="inline-flex items-center gap-1 hover:text-cream break-words"
           >
             Contact <ArrowUpRight className="size-3.5 shrink-0" />
-          </a>
+          </Link>
           <a
             href="https://instagram.com"
             className="inline-flex items-center gap-1 hover:text-cream break-words"

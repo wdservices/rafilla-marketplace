@@ -1,5 +1,24 @@
 import { createServerFn } from "@tanstack/react-start";
 
+import {
+  REFERRAL_MAX_LEVELS,
+  normalizeReferralRates,
+  referralCommissionKobo,
+} from "./referral-core";
+import {
+  broadcastIds,
+  broadcastMailDoc,
+  broadcastNotifDoc,
+  directMailDoc,
+  milestoneEmail,
+  milestoneLabel,
+  milestoneStage,
+  normalizeMilestonePct,
+  personalNotifDoc,
+  purchaseReceiptEmail,
+  receiptIds,
+} from "./notify";
+
 /**
  * Structural types for the pieces of the Admin SDK used below. Declared
  * locally on purpose: importing types from "firebase-admin/*" here would put
@@ -34,6 +53,12 @@ const PAYSTACK_API_BASE = "https://api.paystack.co";
 function getSecretKey(): string {
   const key = (typeof process !== "undefined" && process.env?.["PAYSTACK_SECRET_KEY"]) || "";
   return (key || "").trim();
+}
+
+/** Origin used for links inside server-generated notification emails. */
+function notifyOrigin(): string {
+  const env = (typeof process !== "undefined" && process.env?.["SITE_ORIGIN"]) || "";
+  return env.trim() || "https://raffila.com";
 }
 
 type PaystackApiResponse<T> = {
@@ -354,6 +379,11 @@ async function issueOrderTickets(
     // file is imported by client components and must not pull in the client
     // Firebase modules that own those constants.
     const configSnap = await tx.get(adminDb.collection("platformSettings").doc("raffila_config"));
+    const notifyCfg =
+      (configSnap.data()?.["notifications"] as Record<string, unknown> | undefined) ?? {};
+    const milestonePcts = normalizeMilestonePct(notifyCfg["milestonePct"]);
+    const notifyEmail = notifyCfg["email"] !== false;
+    const notifyInapp = notifyCfg["inapp"] !== false;
     const pct = normalizeRewardPoolPct(
       (configSnap.data()?.["rewardPool"] as Record<string, unknown> | undefined)?.[
         "contributionPct"
@@ -372,6 +402,61 @@ async function issueOrderTickets(
         },
         { merge: true },
       );
+    }
+    // Referral commissions: pay the up to 5 uplines in the SAME transaction
+    // that issues the tickets, so a commission can never be missed, doubled,
+    // or orphaned from the purchase that earned it. Rates come from Admin →
+    // Config → Referral rates (default 10/5/3/2/1%); every commission is
+    // immediately AVAILABLE. All purchases earn — including ones paid with
+    // referral earnings — per product decision. Self-referral and cycles are
+    // blocked by the visited-uid guard.
+    if (expectedTotalKobo > 0) {
+      const refRates = normalizeReferralRates(configSnap.data()?.["referralRates"]);
+      const competitionNames = validated
+        .map((v) => v.title)
+        .join(", ")
+        .slice(0, 200);
+      const visited = new Set<string>([uid]);
+      let cursor = uid;
+      for (let level = 1; level <= REFERRAL_MAX_LEVELS; level++) {
+        const chainSnap = await tx.get(adminDb.collection("users").doc(cursor));
+        const upline = String((chainSnap.data() ?? {})["referredBy"] ?? "").trim();
+        if (!upline || visited.has(upline)) break;
+        visited.add(upline);
+        const ratePct = refRates[`l${level}` as keyof typeof refRates];
+        const commissionKobo = referralCommissionKobo(expectedTotalKobo, ratePct);
+        if (commissionKobo > 0) {
+          tx.set(
+            adminDb
+              .collection("users")
+              .doc(upline)
+              .collection("referralCommissions")
+              .doc(`${reference}-L${level}`),
+            {
+              reference,
+              buyerUid: uid,
+              buyerName: userName || email || uid,
+              level,
+              ratePct,
+              amountKobo: commissionKobo,
+              status: "AVAILABLE",
+              competition: competitionNames,
+              createdAt: now,
+            },
+            { merge: true },
+          );
+          tx.set(
+            adminDb.collection("users").doc(upline),
+            {
+              referralEarningsKobo: FieldValue.increment(commissionKobo),
+              referralEarnedTotalKobo: FieldValue.increment(commissionKobo),
+              updatedAt: now,
+            },
+            { merge: true },
+          );
+        }
+        cursor = upline;
+      }
     }
     if (kind === "referral") {
       const userRef = adminDb.collection("users").doc(uid);
@@ -426,11 +511,58 @@ async function issueOrderTickets(
         },
         { merge: true },
       );
+      // Milestone claim: read the competition inside the same transaction so
+      // concurrent purchases can never double-fire a threshold. The stage
+      // stamp (highest milestone count reached) is written alongside the
+      // increment; the broadcast docs use deterministic ids for the stage.
+      const compSnap = await tx.get(line.competitionRef);
+      const compData = compSnap.data() ?? {};
+      const soldBefore = Number(compData["entriesSold"] ?? 0) || 0;
+      const totalE = Number(compData["totalEntries"] ?? 0) || 0;
+      const stageBefore = Number(compData["milestoneStage"] ?? 0) || 0;
+      const soldAfter = soldBefore + line.quantity;
+      const stageAfter = milestoneStage(soldAfter, totalE, milestonePcts);
+      const newStage = stageAfter > stageBefore ? stageAfter : null;
       tx.set(
         line.competitionRef,
-        { entriesSold: FieldValue.increment(line.quantity), updatedAt: now },
+        {
+          entriesSold: FieldValue.increment(line.quantity),
+          ...(newStage ? { milestoneStage: newStage } : {}),
+          updatedAt: now,
+        },
         { merge: true },
       );
+      if (newStage) {
+        const ids = broadcastIds("milestone", line.slug, newStage);
+        const label = milestoneLabel(newStage, soldAfter, totalE, milestonePcts);
+        if (notifyInapp) {
+          tx.set(
+            adminDb.collection("notifications").doc(ids.notification),
+            broadcastNotifDoc({
+              category: "milestone",
+              title: `${line.title} is filling fast`,
+              body: label,
+              href: `/competitions/${line.slug}`,
+              createdAt: now,
+            }),
+          );
+        }
+        if (notifyEmail) {
+          tx.set(
+            adminDb.collection("mail").doc(ids.mail),
+            broadcastMailDoc({
+              kind: "milestone",
+              message: milestoneEmail({
+                title: line.title,
+                slug: line.slug,
+                label,
+                origin: notifyOrigin(),
+              }),
+              createdAt: now,
+            }),
+          );
+        }
+      }
       built.push({
         competitionSlug: line.slug,
         competitionTitle: line.title,
@@ -451,6 +583,60 @@ async function issueOrderTickets(
     });
     items = built;
   });
+
+  // Buyer receipt (in-app always; email when we have an address). Runs only on
+  // the first confirmation — the idempotency record makes replays a no-op.
+  if (!alreadyConfirmed) {
+    try {
+      const ids = receiptIds(reference);
+      const totalTickets = items.reduce((n, i) => n + i.quantity, 0);
+      const names = items.map((i) => i.competitionTitle).join(", ");
+      await adminDb
+        .collection("notifications")
+        .doc(ids.notification)
+        .set(
+          personalNotifDoc({
+            userId: uid,
+            category: "receipt",
+            title: `Tickets confirmed — ${totalTickets} ticket${totalTickets === 1 ? "" : "s"}`,
+            body: `${names} — order ${reference}`,
+            href: "/dashboard/entries",
+            createdAt: now,
+          }),
+        );
+      const to = email.trim();
+      if (to) {
+        const receiptItems = items.map((i) => ({
+          title: i.competitionTitle,
+          quantity: i.quantity,
+          ticketNumbers: i.ticketNumbers,
+          amountKobo:
+            (validated.find((v) => v.slug === i.competitionSlug)?.entryPriceKobo ?? 0) * i.quantity,
+        }));
+        await adminDb
+          .collection("mail")
+          .doc(ids.mail)
+          .set(
+            directMailDoc({
+              to,
+              uid,
+              kind: "receipt",
+              message: purchaseReceiptEmail({
+                buyerName: userName || to,
+                reference,
+                items: receiptItems,
+                totalKobo: chargeKobo,
+                paidWith: kind,
+                origin: notifyOrigin(),
+              }),
+              createdAt: now,
+            }),
+          );
+      }
+    } catch {
+      // Notification enqueue is best-effort; tickets are already issued.
+    }
+  }
 
   try {
     const via = kind === "paystack" ? "Paystack" : "referral earnings";

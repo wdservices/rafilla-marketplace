@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Search,
   FileDown,
@@ -8,12 +8,16 @@ import {
   ArrowUpRight,
   Download,
   CalendarDays,
+  Banknote,
 } from "lucide-react";
+import { collection, limit, onSnapshot, orderBy, query, where, getDocs } from "firebase/firestore";
 
 import { DashboardAppShell } from "@/components/raffila/dashboard/app-shell";
 import { Button } from "@/components/ui/button";
 import { formatNaira } from "@/lib/raffila-data";
 import { cn } from "@/lib/utils";
+import { useAuthSession } from "@/hooks/useAuthSession";
+import { db } from "@/lib/firebase";
 
 type TxTab = "all" | "credits" | "purchases" | "referrals" | "payouts";
 
@@ -22,13 +26,14 @@ type TxType = "Wallet credit" | "Ticket purchase" | "Referral bonus" | "Payout";
 type TxSource = "Wallet" | "Paystack" | "Referral" | "Flutterwave" | "Bank transfer";
 
 type Tx = {
+  ts: number;
   date: string;
   type: TxType;
   id: string;
   source: TxSource;
   desc: string;
-  amount: number;
-  balance: number;
+  amountKobo: number;
+  balanceKobo: number;
 };
 
 const tabs: Array<[TxTab, string]> = [
@@ -51,21 +56,162 @@ const sourceIcon: Record<TxSource, { icon: React.ReactNode; bg: string }> = {
   Paystack: { icon: <ArrowUpRight className="size-4" />, bg: "bg-coral/15 text-coral" },
   Referral: { icon: <Users className="size-4" />, bg: "bg-lemon/30 text-ink" },
   Flutterwave: { icon: <ArrowUpRight className="size-4" />, bg: "bg-lilac/30 text-ink" },
-  "Bank transfer": { icon: <ArrowUpRight className="size-4" />, bg: "bg-sky/20 text-ink" },
+  "Bank transfer": { icon: <Banknote className="size-4" />, bg: "bg-sky/20 text-ink" },
 };
 
-const txPool: Array<Omit<Tx, "id">> = [];
+function toMs(v: unknown): number {
+  try {
+    const x = v as { toDate?: () => Date };
+    if (x && typeof x.toDate === "function") return x.toDate().getTime();
+  } catch {
+    /* fall through */
+  }
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
 
-const allTransactions: Tx[] = txPool.map((t, i) => ({
-  ...t,
-  id: "RF-TX-2026-" + String(i + 1).padStart(5, "0"),
-}));
+function fmtDate(ms: number): string {
+  if (!ms) return "—";
+  return new Date(ms).toLocaleDateString("en-NG", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function fmtKobo(kobo: number): React.ReactNode {
+  const abs = Math.abs(kobo);
+  return (
+    <>
+      {kobo >= 0 ? "+" : "-"}
+      {formatNaira(Math.floor(abs / 100))}
+      <span className="text-[10px]">.{String(abs % 100).padStart(2, "0")}</span>
+    </>
+  );
+}
 
 export function DashboardTransactionsPage() {
+  const { user } = useAuthSession();
+  const uid = user?.id?.startsWith("firebase_")
+    ? user.id.slice("firebase_".length)
+    : (user?.id ?? "");
   const [tab, setTab] = useState<TxTab>("all");
   const [search, setSearch] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [walletTx, setWalletTx] = useState<Tx[]>([]);
+  const [refTx, setRefTx] = useState<Tx[]>([]);
+  const [payoutTx, setPayoutTx] = useState<Tx[]>([]);
+
+  // Live wallet ledger (credits + ticket purchases), server-written.
+  useEffect(() => {
+    if (!uid) return;
+    const unsub = onSnapshot(
+      query(
+        collection(db, "users", uid, "walletTransactions"),
+        orderBy("createdAt", "desc"),
+        limit(50),
+      ),
+      (snap) => {
+        setWalletTx(
+          snap.docs.map((d) => {
+            const v = d.data() as Record<string, unknown>;
+            const rawType = String(v["type"] ?? "");
+            const type: TxType =
+              rawType === "Ticket purchase"
+                ? "Ticket purchase"
+                : rawType === "Referral bonus"
+                  ? "Referral bonus"
+                  : "Wallet credit";
+            const ts = toMs(v["createdAt"] ?? v["paidAt"]);
+            return {
+              ts,
+              date: fmtDate(ts),
+              type,
+              id: String(v["reference"] ?? d.id),
+              source: (v["source"] as TxSource) || "Paystack",
+              desc:
+                String(v["desc"] ?? "") ||
+                (type === "Wallet credit"
+                  ? `Wallet top-up · ${String(v["reference"] ?? d.id)}`
+                  : type),
+              amountKobo: Number(v["amountKobo"] ?? 0) || 0,
+              balanceKobo: Number(v["balanceAfterKobo"] ?? 0) || 0,
+            };
+          }),
+        );
+      },
+      () => setWalletTx([]),
+    );
+    return () => unsub();
+  }, [uid]);
+
+  // Live referral commissions.
+  useEffect(() => {
+    if (!uid) return;
+    const unsub = onSnapshot(
+      query(
+        collection(db, "users", uid, "referralCommissions"),
+        orderBy("createdAt", "desc"),
+        limit(50),
+      ),
+      (snap) => {
+        setRefTx(
+          snap.docs.map((d) => {
+            const v = d.data() as Record<string, unknown>;
+            const ts = toMs(v["createdAt"]);
+            const level = Number(v["level"] ?? 1) || 1;
+            return {
+              ts,
+              date: fmtDate(ts),
+              type: "Referral bonus" as TxType,
+              id: String(v["reference"] ?? d.id),
+              source: "Referral" as TxSource,
+              desc: `Level ${level} commission · ${String(v["competition"] ?? "ticket entry")}`,
+              amountKobo: Number(v["amountKobo"] ?? 0) || 0,
+              balanceKobo: Number(v["amountKobo"] ?? 0) || 0,
+            };
+          }),
+        );
+      },
+      () => setRefTx([]),
+    );
+    return () => unsub();
+  }, [uid]);
+
+  // Payout requests (server-written; read-only for the owner).
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    void getDocs(query(collection(db, "payouts"), where("userId", "==", uid), limit(50)))
+      .then((snap) => {
+        if (cancelled) return;
+        setPayoutTx(
+          snap.docs.map((d) => {
+            const v = d.data() as Record<string, unknown>;
+            const ts = toMs(v["createdAt"]);
+            return {
+              ts,
+              date: fmtDate(ts),
+              type: "Payout" as TxType,
+              id: String(v["reference"] ?? d.id),
+              source: "Bank transfer" as TxSource,
+              desc: `${String(v["bank"] ?? "Bank")} payout · ${String(v["status"] ?? "PENDING")}`,
+              amountKobo: -(Number(v["amountKobo"] ?? 0) || 0),
+              balanceKobo: 0,
+            };
+          }),
+        );
+      })
+      .catch(() => setPayoutTx([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [uid]);
+
+  const allTransactions = useMemo(
+    () => [...walletTx, ...refTx, ...payoutTx].sort((a, b) => b.ts - a.ts),
+    [walletTx, refTx, payoutTx],
+  );
 
   const filtered = allTransactions.filter((tx) => {
     if (tab === "credits" && tx.type !== "Wallet credit") return false;
@@ -74,6 +220,8 @@ export function DashboardTransactionsPage() {
     if (tab === "payouts" && tx.type !== "Payout") return false;
     const q = search.trim().toLowerCase();
     if (q && !(tx.id.toLowerCase().includes(q) || tx.desc.toLowerCase().includes(q))) return false;
+    if (from && tx.ts && tx.ts < new Date(from).getTime()) return false;
+    if (to && tx.ts && tx.ts > new Date(to).getTime() + 86399999) return false;
     return true;
   });
 
@@ -96,7 +244,7 @@ export function DashboardTransactionsPage() {
                 filtered
                   .map(
                     (t) =>
-                      `"${t.date}","${t.type}","${t.id}","${t.source}","${t.desc}",${t.amount},${t.balance}`,
+                      `"${t.date}","${t.type}","${t.id}","${t.source}","${t.desc}",${(t.amountKobo / 100).toFixed(2)},${(t.balanceKobo / 100).toFixed(2)}`,
                   )
                   .join("\n");
               const blob = new Blob([csv], { type: "text/csv" });
@@ -213,20 +361,13 @@ export function DashboardTransactionsPage() {
                       <td
                         className={cn(
                           "whitespace-nowrap px-4 py-3 text-right font-display text-base font-extrabold",
-                          tx.amount >= 0 ? "text-mint" : "text-coral",
+                          tx.amountKobo >= 0 ? "text-mint" : "text-coral",
                         )}
                       >
-                        {tx.amount >= 0 ? "+" : "-"}
-                        {formatNaira(Math.floor(Math.abs(tx.amount) / 100))}
-                        <span className="text-[10px]">
-                          .{String(Math.abs(tx.amount) % 100).padStart(2, "0")}
-                        </span>
+                        {fmtKobo(tx.amountKobo)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right font-bold text-ink/70">
-                        {formatNaira(Math.floor(tx.balance / 100))}
-                        <span className="text-[10px]">
-                          .{String(tx.balance % 100).padStart(2, "0")}
-                        </span>
+                        {tx.balanceKobo ? formatNaira(tx.balanceKobo) : "—"}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button

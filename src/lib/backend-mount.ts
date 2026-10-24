@@ -47,7 +47,7 @@ export function ensureNodeGlobals(appDir: string = process.cwd()): void {
  * prefix added by the public_html rewrite (or kept by a non-stripping host).
  * ADD every future /api/* route here or it will be misrouted to pages.
  */
-export const BACKEND_API_ROUTES: ReadonlySet<string> = new Set(["/api/health"]);
+export const BACKEND_API_ROUTES: ReadonlySet<string> = new Set(["/api/health", "/api/notify-tick"]);
 
 export function normalizeBackendMountPath(pathname: string): string {
   // Bare /health can only be a stripped /api/health (no in-app /health route).

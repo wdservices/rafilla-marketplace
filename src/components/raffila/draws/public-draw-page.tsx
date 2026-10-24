@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Sparkles,
   Lock,
+  RotateCcw,
 } from "lucide-react";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -46,6 +47,19 @@ export function PublicDrawPage({ slug: propSlug }: PublicDrawPageProps) {
   const [ticketsLoading, setTicketsLoading] = useState(true);
   const [showCelebration, setShowCelebration] = useState(false);
   const [localSpinning, setLocalSpinning] = useState(false);
+  // Replay of an already-finished draw: `replayStart` is the timestamp the
+  // re-spin was kicked off with, and `replayCelebrates` controls whether the
+  // winner modal fires when it lands.
+  const [replayStart, setReplayStart] = useState<number | null>(null);
+  const [replayCelebrates, setReplayCelebrates] = useState(false);
+  const sawLiveSpinRef = useRef(false);
+  const didAutoReplayRef = useRef(false);
+
+  const startReplay = useCallback((celebrates: boolean) => {
+    setReplayCelebrates(celebrates);
+    setReplayStart(Date.now());
+    setShowCelebration(false);
+  }, []);
 
   // 1. Fetch competition document
   useEffect(() => {
@@ -94,12 +108,20 @@ export function PublicDrawPage({ slug: propSlug }: PublicDrawPageProps) {
       setDrawRecord(rec);
 
       if (rec?.stage === "SPINNING") {
+        sawLiveSpinRef.current = true;
         setLocalSpinning(true);
       } else if (rec?.stage === "REVEALED" || rec?.stage === "COMPLETED") {
         setLocalSpinning(false);
-        // Only show celebration if winner is populated
-        if (rec.winningTicketNumber) {
+        if (!rec.winningTicketNumber) return;
+
+        if (sawLiveSpinRef.current) {
+          // We watched the live draw spin out — celebrate the result.
           setShowCelebration(true);
+        } else if (!didAutoReplayRef.current) {
+          // Arrived at an already-finished draw: replay it once instead of
+          // blanketing the wheel with the celebration modal.
+          didAutoReplayRef.current = true;
+          startReplay(false);
         }
       }
     });
@@ -107,7 +129,7 @@ export function PublicDrawPage({ slug: propSlug }: PublicDrawPageProps) {
     return () => {
       unsub();
     };
-  }, [slug]);
+  }, [slug, startReplay]);
 
   // Derived metadata
   const compTitle = String(
@@ -125,14 +147,22 @@ export function PublicDrawPage({ slug: propSlug }: PublicDrawPageProps) {
 
   const currentStage: DrawStage = drawRecord?.stage || "READY";
   const isFinished = currentStage === "COMPLETED" || drawRecord?.status === "COMPLETED";
+  const isReplaying = replayStart !== null;
+  const isWheelSpinning = localSpinning || currentStage === "SPINNING" || isReplaying;
 
   // Handle spin finish on the public wheel
-  const handleSpinComplete = () => {
+  const handleSpinComplete = useCallback(() => {
     setLocalSpinning(false);
+    if (replayStart !== null) {
+      const celebrates = replayCelebrates;
+      setReplayStart(null);
+      if (celebrates) setShowCelebration(true);
+      return;
+    }
     if (drawRecord?.winningTicketNumber) {
       setShowCelebration(true);
     }
-  };
+  }, [replayStart, replayCelebrates, drawRecord]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#061D15] via-[#0A291E] to-[#04140D] text-[#F7F4EB]">
@@ -232,7 +262,7 @@ export function PublicDrawPage({ slug: propSlug }: PublicDrawPageProps) {
                 <span
                   className={cn(
                     "size-2.5 rounded-full",
-                    localSpinning || currentStage === "SPINNING"
+                    isWheelSpinning
                       ? "bg-[#D4AF37] animate-ping"
                       : isFinished
                         ? "bg-[#10B981]"
@@ -240,11 +270,13 @@ export function PublicDrawPage({ slug: propSlug }: PublicDrawPageProps) {
                   )}
                 />
                 <span className="text-[#F3E5AB]">
-                  {localSpinning || currentStage === "SPINNING"
-                    ? "Wheel in motion · Live selection underway"
-                    : isFinished
-                      ? "Draw completed · Official winner confirmed"
-                      : "Wheel standby · Waiting for draw broadcast"}
+                  {isReplaying
+                    ? "Replay in progress · Rewinding the recorded draw"
+                    : isWheelSpinning
+                      ? "Wheel in motion · Live selection underway"
+                      : isFinished
+                        ? "Draw completed · Official winner confirmed"
+                        : "Wheel standby · Waiting for draw broadcast"}
                 </span>
               </div>
 
@@ -259,12 +291,24 @@ export function PublicDrawPage({ slug: propSlug }: PublicDrawPageProps) {
             <WheelOfFortune
               tickets={tickets}
               winningTicketNumber={drawRecord?.winningTicketNumber ?? null}
-              isSpinning={localSpinning || currentStage === "SPINNING"}
-              spinStartTime={drawRecord?.spinStartTime ?? null}
+              isSpinning={isWheelSpinning}
+              spinStartTime={isReplaying ? replayStart : (drawRecord?.spinStartTime ?? null)}
               spinDurationMs={drawRecord?.spinDurationMs || 7500}
               onSpinComplete={handleSpinComplete}
               size="lg"
             />
+
+            {/* Replay control: a finished draw can be re-watched on demand */}
+            {isFinished && drawRecord?.winningTicketNumber && !isWheelSpinning && (
+              <button
+                type="button"
+                onClick={() => startReplay(true)}
+                className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#D4AF37] px-5 py-2.5 text-xs font-extrabold uppercase tracking-wider text-[#0A261B] shadow-lg transition-colors hover:bg-[#FFF]"
+              >
+                <RotateCcw className="size-4" />
+                Replay the draw
+              </button>
+            )}
 
             {/* Post-draw Winner Card inside Wheel panel if completed */}
             {isFinished && drawRecord?.winningTicketNumber && (

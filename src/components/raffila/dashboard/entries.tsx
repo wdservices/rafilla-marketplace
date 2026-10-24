@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Search, Copy, Check, FileDown, Ticket, Eye, X, Trophy } from "lucide-react";
+import { Search, Copy, Check, FileDown, Ticket, Eye, X, Trophy, Share2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo } from "react";
 import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { useCompetitions, findCompetition, isCompetitionConcluded } from "@/hooks/useCompetitions";
 import { db } from "@/lib/firebase";
+import { ensureReferralCode } from "@/lib/referral-server";
+import { ticketQrValue } from "@/lib/referral-core";
 
 type EntryStatus = "Entered" | "Won" | "Lost" | "Completed";
 
@@ -29,7 +31,12 @@ type MockEntry = {
   winningTicketNumber?: string | null;
 };
 
-const statuses: Array<"All" | "Active" | "Completed" | "Won"> = ["All", "Active", "Completed", "Won"];
+const statuses: Array<"All" | "Active" | "Completed" | "Won"> = [
+  "All",
+  "Active",
+  "Completed",
+  "Won",
+];
 
 const statusBadge: Record<string, string> = {
   Entered: "bg-mint/30 text-ink",
@@ -70,6 +77,37 @@ export function DashboardEntriesPage() {
   const uid = user?.id?.startsWith("firebase_")
     ? user.id.slice("firebase_".length)
     : (user?.id ?? "");
+
+  // The ticket QR doubles as this user's invite link, so scanning it opens
+  // the competition with referral attribution.
+  const [refCode, setRefCode] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  useEffect(() => {
+    if (!uid) return;
+    let cancelled = false;
+    void ensureReferralCode({ data: { uid } })
+      .then((res) => {
+        if (!cancelled && res.ok) setRefCode(res.code);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [uid]);
+
+  const inviteUrlFor = (slug: string, entryId: string) =>
+    ticketQrValue({
+      origin: typeof window !== "undefined" ? window.location.origin : "https://raffila.com",
+      refCode,
+      competitionSlug: slug,
+      entryId,
+    });
+
+  const copyInviteLink = (slug: string, entryId: string) => {
+    navigator.clipboard?.writeText(inviteUrlFor(slug, entryId)).catch(() => {});
+    setInviteCopied(true);
+    setTimeout(() => setInviteCopied(false), 1800);
+  };
 
   useEffect(() => {
     trackEvent("my_entries_view", {});
@@ -122,11 +160,7 @@ export function DashboardEntriesPage() {
           (comp && comp.winnerUserId === uid) ||
           (Boolean(winTkt) && e.ticketNumbers.some((t) => String(t) === String(winTkt)));
 
-        const status: EntryStatus = isUserWinner
-          ? "Won"
-          : isConcluded
-            ? "Completed"
-            : "Entered";
+        const status: EntryStatus = isUserWinner ? "Won" : isConcluded ? "Completed" : "Entered";
 
         return {
           id: e.entryId,
@@ -300,15 +334,18 @@ export function DashboardEntriesPage() {
                     Congratulations! You have a winning ticket!
                   </h3>
                   <p className="text-xs sm:text-sm text-cream/75">
-                    Your winning ticket was selected and verified in the official prize draw. Click below to view the draw replay or verify your prize claim.
+                    Your winning ticket was selected and verified in the official prize draw. Click
+                    below to view the draw replay or verify your prize claim.
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Button asChild size="md" className="bg-[#D4AF37] hover:bg-[#E5C158] text-[#0A261B] font-extrabold shadow-md">
-                  <Link to="/winners">
-                    🏆 View in Winners Circle
-                  </Link>
+                <Button
+                  asChild
+                  size="md"
+                  className="bg-[#D4AF37] hover:bg-[#E5C158] text-[#0A261B] font-extrabold shadow-md"
+                >
+                  <Link to="/winners">🏆 View in Winners Circle</Link>
                 </Button>
               </div>
             </div>
@@ -417,15 +454,25 @@ export function DashboardEntriesPage() {
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {e.status === "Won" && (
-                            <Button asChild size="sm" className="bg-[#D4AF37] hover:bg-[#E5C158] text-[#0A261B] font-extrabold text-xs">
-                              <Link to="/competitions/$slug/draw" params={{ slug: e.competitionSlug }}>
+                            <Button
+                              asChild
+                              size="sm"
+                              className="bg-[#D4AF37] hover:bg-[#E5C158] text-[#0A261B] font-extrabold text-xs"
+                            >
+                              <Link
+                                to="/competitions/$slug/draw"
+                                params={{ slug: e.competitionSlug }}
+                              >
                                 🎯 Draw
                               </Link>
                             </Button>
                           )}
                           {e.status === "Completed" && (
                             <Button asChild variant="outline" size="sm" className="text-xs">
-                              <Link to="/competitions/$slug/draw" params={{ slug: e.competitionSlug }}>
+                              <Link
+                                to="/competitions/$slug/draw"
+                                params={{ slug: e.competitionSlug }}
+                              >
                                 Draw
                               </Link>
                             </Button>
@@ -473,19 +520,15 @@ export function DashboardEntriesPage() {
 
             <div className="mt-6 rounded-2xl bg-cream p-6 ring-1 ring-ink/5 flex flex-col items-center">
               {(() => {
-                // The QR must be unique per user AND per purchase. Encoding only
-                // the competition slug produced an identical code for every buyer,
-                // so the payload carries the entry id, the owner uid and the slug.
-                const payload = [
-                  "RAFFILA",
-                  ticketOpen.id,
-                  uid ?? "guest",
-                  ticketOpen.competitionSlug,
-                ].join("|");
+                // The QR is a scannable invite URL for this competition:
+                // anyone who scans it lands on /invite/{code}?comp={slug},
+                // which records the referral and opens the draw. The entry id
+                // rides along (?e=) so the code is also unique per purchase.
+                const qrValue = inviteUrlFor(ticketOpen.competitionSlug, ticketOpen.id);
                 return (
                   <div className="size-40 grid place-items-center rounded-2xl bg-white p-3 ring-1 ring-ink/10">
                     <QRCodeSVG
-                      value={payload}
+                      value={qrValue}
                       size={112}
                       bgColor="#ffffff"
                       fgColor="#172a23"
@@ -496,6 +539,25 @@ export function DashboardEntriesPage() {
                 );
               })()}
               <p className="mt-4 font-mono text-xs font-bold text-ink/60">{ticketOpen.id}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() => copyInviteLink(ticketOpen.competitionSlug, ticketOpen.id)}
+              >
+                {inviteCopied ? (
+                  <>
+                    <Check className="size-3.5" /> Invite link copied
+                  </>
+                ) : (
+                  <>
+                    <Share2 className="size-3.5" /> Copy invite link
+                  </>
+                )}
+              </Button>
+              <p className="mt-2 text-[11px] font-bold text-ink/45">
+                Scanning this QR sends friends to this competition as your referral.
+              </p>
             </div>
 
             <div className="mt-6 space-y-3">

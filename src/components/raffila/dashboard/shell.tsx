@@ -20,6 +20,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { CartButton } from "@/components/raffila/cart/cart-button";
+import { NotificationBell } from "@/components/raffila/notification-bell";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -368,6 +369,7 @@ export function DashboardShell({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <NotificationBell />
           <CartButton />
           <Button
             variant="ghost"
@@ -385,7 +387,8 @@ export function DashboardShell({
 
       <main className="min-w-0 overflow-x-hidden lg:ml-[268px] min-h-screen pt-5 pb-28 px-4 sm:px-6 lg:px-8 lg:pt-8">
         {/* Desktop counterpart of the mobile header's cart button. */}
-        <div className="mb-4 hidden justify-end lg:flex">
+        <div className="mb-4 hidden items-center justify-end gap-2 lg:flex">
+          <NotificationBell />
           <CartButton />
         </div>
         <div className="mb-4 flex justify-end">

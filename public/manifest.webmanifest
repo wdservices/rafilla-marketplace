@@ -1,0 +1,18 @@
+{
+  "name": "Raffila Grand Prizes",
+  "short_name": "Raffila",
+  "description": "Premium prize competitions with publicly verifiable draws, secure entries, and real prizes delivered.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FAF7F2",
+  "theme_color": "#0E1021",
+  "icons": [
+    {
+      "src": "/Raffila-logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

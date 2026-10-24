@@ -204,6 +204,7 @@ export async function sendAdminInvite(
     try {
       await addDoc(collection(db, "mail"), {
         to: clean,
+        delivery: null,
         createdAt: serverTimestamp(),
         message: {
           subject: "You're invited to administer Raffila",

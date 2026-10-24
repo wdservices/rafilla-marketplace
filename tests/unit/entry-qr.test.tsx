@@ -3,6 +3,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 const qrValues: string[] = [];
 let snapCb: ((snap: { docs: unknown[] }) => void) | null = null;
+let ensureImpl: (input: {
+  data: { uid: string };
+}) => Promise<{ ok: boolean; code: string }> = async () => ({ ok: true, code: "ALICE" });
 
 vi.mock("qrcode.react", () => ({
   QRCodeSVG: ({ value }: { value: string }) => {
@@ -23,6 +26,9 @@ vi.mock("firebase/firestore", () => ({
   }),
 }));
 vi.mock("@/lib/firebase", () => ({ db: {} }));
+vi.mock("@/lib/referral-server", () => ({
+  ensureReferralCode: (input: { data: { uid: string } }) => ensureImpl(input),
+}));
 vi.mock("@/hooks/useAuthSession", () => ({
   useAuthSession: () => ({ user: { id: "firebase_alice" } }),
 }));
@@ -73,9 +79,10 @@ describe("entry ticket QR code", () => {
     vi.clearAllMocks();
     qrValues.length = 0;
     snapCb = null;
+    ensureImpl = async () => ({ ok: true, code: "ALICE" });
   });
 
-  it("renders a real QR encoding the entry, owner and competition", async () => {
+  it("renders a scannable invite URL with the code, competition and entry", async () => {
     render(<DashboardEntriesPage />);
     act(() => snapCb?.({ docs: [entryDoc("RF-2026-AAA")] }));
 
@@ -84,23 +91,37 @@ describe("entry ticket QR code", () => {
 
     await waitFor(() => expect(screen.getByTestId("qr-code")).toBeInTheDocument());
     expect(qrValues).toHaveLength(1);
-    // Unique per purchase AND per user — not the competition slug alone.
-    expect(qrValues[0]).toBe("RAFFILA|RF-2026-AAA|alice|wireless-hair-clipper");
+    const origin = window.location.origin;
+    expect(qrValues[0]).toBe(`${origin}/invite/ALICE?comp=wireless-hair-clipper&e=RF-2026-AAA`);
+    // Must be a real URL a phone camera can open — never the old pipe payload.
+    expect(qrValues[0]).not.toContain("|");
+    expect(() => new URL(qrValues[0]!)).not.toThrow();
   });
 
-  it("produces a different code for a different user on the same competition", async () => {
-    const { rerender } = render(<DashboardEntriesPage />);
+  it("keeps each purchase unique via the entry id in the URL", async () => {
+    render(<DashboardEntriesPage />);
     act(() => snapCb?.({ docs: [entryDoc("RF-2026-AAA")] }));
     fireEvent.click(await screen.findByRole("button", { name: /view ticket/i }));
     await waitFor(() => expect(qrValues).toHaveLength(1));
     const first = qrValues[0]!;
-    rerender(<DashboardEntriesPage />);
 
-    // A second user viewing their own ticket must not reuse the first payload.
-    const second = ["RAFFILA", "RF-2026-BBB", "bob", "wireless-hair-clipper"].join("|");
+    // Same user, a different purchase → same invite code, different URL.
+    const second = `${window.location.origin}/invite/ALICE?comp=wireless-hair-clipper&e=RF-2026-BBB`;
     expect(first).not.toBe(second);
-    expect(first).toContain("alice");
-    expect(second).toContain("bob");
+    expect(first).toContain("/invite/ALICE");
+    expect(first).toContain("e=RF-2026-AAA");
+    expect(second).toContain("e=RF-2026-BBB");
+  });
+
+  it("falls back to the competition URL when no referral code is available", async () => {
+    ensureImpl = async () => {
+      throw new Error("backend not ready");
+    };
+    render(<DashboardEntriesPage />);
+    act(() => snapCb?.({ docs: [entryDoc("RF-2026-AAA")] }));
+    fireEvent.click(await screen.findByRole("button", { name: /view ticket/i }));
+    await waitFor(() => expect(screen.getByTestId("qr-code")).toBeInTheDocument());
+    expect(qrValues[0]).toBe(`${window.location.origin}/competitions/wireless-hair-clipper`);
   });
 
   it("does not render any QR before a ticket is opened", () => {

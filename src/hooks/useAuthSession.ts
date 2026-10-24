@@ -23,6 +23,8 @@ import {
   checkIsAdmin,
 } from "@/lib/firebase-auth";
 import { logActivity } from "@/lib/activity-log";
+import { queueWelcomeEmail } from "@/lib/notify-server";
+import { attributeStoredReferral } from "@/lib/referral-capture";
 import {
   checkUsernameAvailability,
   checkEmailAvailability,
@@ -115,6 +117,9 @@ export function useAuthActions() {
           id: `firebase_${cred.user.uid}`,
         };
         setFirebaseSession(user, remember);
+        // Apply a captured referral link (?ref= / invite page) to this
+        // account. Fire-and-forget — never blocks sign-in.
+        attributeStoredReferral(cred.user.uid);
 
         if (typeof window !== "undefined") {
           if (remember) {
@@ -153,7 +158,9 @@ export function useAuthActions() {
       }
     },
 
-    async signInWithGoogle(options?: { redirectTo?: string | false | undefined }): Promise<
+    async signInWithGoogle(options?: {
+      redirectTo?: string | false | undefined;
+    }): Promise<
       | { ok: true; user: RaffilaUser; redirect: string; needsProfile: boolean }
       | { ok: false; message: string }
     > {
@@ -184,6 +191,11 @@ export function useAuthActions() {
           } catch (stubErr) {
             console.warn("Could not save Google profile stub:", stubErr);
           }
+          if (fbUser.email) {
+            void queueWelcomeEmail({
+              data: { uid: fbUser.uid, email: fbUser.email, firstName: stub.firstName },
+            }).catch(() => {});
+          }
         }
 
         // Backfill: heal docs that are missing the Google photo.
@@ -203,6 +215,9 @@ export function useAuthActions() {
             profile = await getUserProfile(fbUser.uid);
           }
         }
+
+        // The Firestore user doc exists now — apply any captured referral.
+        if (profile) attributeStoredReferral(fbUser.uid);
 
         if (String(profile?.["status"] ?? "").toLowerCase() === "suspended") {
           return {
@@ -331,6 +346,9 @@ export function useAuthActions() {
         const { consumeAdminInvite } = await import("@/lib/activity-log");
         await consumeAdminInvite(cleanEmail, cred.user.uid);
 
+        // Firestore profile exists — apply any captured referral link.
+        attributeStoredReferral(cred.user.uid);
+
         const profile = await getUserProfile(cred.user.uid);
         const raffilaUser = firebaseUserToRaffilaUser(cred.user, profile ?? {});
         const user: RaffilaUser = { ...raffilaUser, id: `firebase_${cred.user.uid}` };
@@ -347,6 +365,9 @@ export function useAuthActions() {
           targetId: cred.user.uid,
           summary: `Created account (${cleanUsername})`,
         });
+        void queueWelcomeEmail({
+          data: { uid: cred.user.uid, email: cleanEmail, firstName: cleanUsername },
+        }).catch(() => {});
         return { ok: true, user };
       } catch (err: any) {
         const message =
@@ -400,6 +421,9 @@ export function useAuthActions() {
             uid,
           });
         }
+
+        // Profile complete — apply any captured referral link.
+        attributeStoredReferral(uid);
 
         const profile = await getUserProfile(uid);
         const fbUser = {

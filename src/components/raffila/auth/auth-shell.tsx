@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ShieldCheck, BadgeCheck, WalletCards, Check } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatNaira } from "@/lib/utils";
+import { usePrizesPaidOut } from "@/hooks/usePrizesPaidOut";
 
 type AuthVariant = "login" | "register" | "forgot" | "otp" | "complete";
 
@@ -102,6 +103,7 @@ function ProductCarousel() {
 }
 
 export function AuthShell({ children, variant = "login" }: AuthShellProps) {
+  const prizesPaidKobo = usePrizesPaidOut();
   return (
     <div className="min-h-screen bg-paper flex flex-col lg:flex-row">
       <div className="lg:hidden px-4 pt-6 pb-2">
@@ -181,7 +183,7 @@ export function AuthShell({ children, variant = "login" }: AuthShellProps) {
                 Prizes paid out
               </p>
               <p className="mt-0.5 font-display text-xl font-extrabold text-ink">
-                {"\u20A6"}148,200,000+
+                {prizesPaidKobo === null ? "\u20A6…" : `${formatNaira(prizesPaidKobo)}+`}
               </p>
             </div>
           </div>

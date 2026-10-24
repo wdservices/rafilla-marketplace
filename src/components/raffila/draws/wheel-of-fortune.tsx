@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Volume2, VolumeX, Sparkles } from "lucide-react";
 import type { EligibleTicket } from "@/lib/draw-system";
+import {
+  WHEEL_REST_ROTATION_DEG,
+  wheelLandRotationDeg,
+  wheelTargetRotationDeg,
+} from "@/lib/wheel-geometry";
 import { cn } from "@/lib/utils";
 
 interface WheelOfFortuneProps {
@@ -25,6 +30,10 @@ const SEGMENT_COLORS = [
   "#20684F", // Velvet Mint
 ];
 
+// Segment angle math (landing/rest rotations) lives in @/lib/wheel-geometry —
+// see the WHEEL ANGLE CONVENTION note there. Segments are measured clockwise
+// from 3 o'clock while the gold pointer is fixed at 12 o'clock (270°).
+
 export function WheelOfFortune({
   tickets,
   winningTicketNumber,
@@ -35,13 +44,20 @@ export function WheelOfFortune({
   className,
   size = "lg",
 }: WheelOfFortuneProps) {
-  const [rotationDeg, setRotationDeg] = useState(0);
+  const [rotationDeg, setRotationDeg] = useState(WHEEL_REST_ROTATION_DEG);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [pegtick, setPegtick] = useState(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const lastPegIndexRef = useRef<number>(-1);
   const animFrameRef = useRef<number | null>(null);
   const hasCompletedRef = useRef(false);
+  const rotationDegRef = useRef(WHEEL_REST_ROTATION_DEG);
+  const wasSpinningRef = useRef(false);
+  const spinBaseRef = useRef(WHEEL_REST_ROTATION_DEG);
+
+  useEffect(() => {
+    rotationDegRef.current = rotationDeg;
+  }, [rotationDeg]);
 
   // Scalable representation: if pool is large, display a balanced window of ~28 real tickets
   // that strictly includes the winning ticket and surrounding tickets from the real pool.
@@ -137,28 +153,52 @@ export function WheelOfFortune({
     setTimeout(() => setPegtick(false), 80);
   };
 
-  // Calculate destination rotation angle:
-  // Pointer is at 12 o'clock (0° from top).
-  // Segment i is centered at (i + 0.5) * segmentAngle from 12 o'clock.
-  // To rotate winning segment to 12 o'clock: targetDeg = 360 * fullSpins + (360 - midAngle)
-  const targetRotationDeg = useMemo(() => {
-    const midAngle = (winningSegmentIndex + 0.5) * segmentAngle;
-    const fullSpins = 7; // 7 full 360° revolutions for suspense
-    const landOffset = (360 - midAngle + 360) % 360;
-    return 360 * fullSpins + landOffset;
-  }, [winningSegmentIndex, segmentAngle]);
+  // ------------------------------------------------------------------------
+  // See the WHEEL ANGLE CONVENTION note at the top of this file: segment
+  // midpoints are measured clockwise from 3 o'clock, the pointer is fixed at
+  // 12 o'clock (270°), so the landing rotation is 270 − midAngle.
+  // ------------------------------------------------------------------------
+
+  // Landing offset that parks the winning segment's CENTRE under the pointer.
+  const landOffsetDeg = useMemo(
+    () => wheelLandRotationDeg(winningSegmentIndex, segmentCount),
+    [winningSegmentIndex, segmentCount],
+  );
+
+  // Total destination rotation is computed per spin from wherever the wheel
+  // currently sits: 7 suspense revolutions that always end on landOffsetDeg.
+  // Recomputing it here (rather than memoizing off landOffsetDeg alone) is what
+  // lets a finished draw be replayed instead of sitting still.
 
   // Synchronized Animation / Physics loop
   useEffect(() => {
     if (!isSpinning) {
+      wasSpinningRef.current = false;
+      if (hasCompletedRef.current) {
+        // A spin just finished: the wheel is already parked on the winning
+        // segment (congruent to landOffsetDeg), so leave it alone — snapping
+        // back to landOffsetDeg would visibly unwind the revolutions.
+        return;
+      }
       if (winningTicketNumber) {
         // If already completed or not spinning, stop firmly on winner
-        const midAngle = (winningSegmentIndex + 0.5) * segmentAngle;
-        const landOffset = (360 - midAngle + 360) % 360;
-        setRotationDeg(landOffset);
+        setRotationDeg(landOffsetDeg);
+      } else {
+        // Idle: rest on a segment boundary line so the pointer never sits in
+        // the middle of a ticket before the draw.
+        setRotationDeg(WHEEL_REST_ROTATION_DEG);
       }
       return;
     }
+
+    // Spin started: begin from wherever the wheel currently sits so a replay of
+    // a completed draw picks up from the parked landing rotation.
+    if (!wasSpinningRef.current) {
+      spinBaseRef.current = rotationDegRef.current;
+      wasSpinningRef.current = true;
+    }
+    const baseRotation = spinBaseRef.current;
+    const targetRotation = wheelTargetRotationDeg(landOffsetDeg, 7, baseRotation);
 
     hasCompletedRef.current = false;
     const startMs = spinStartTime ?? Date.now();
@@ -173,7 +213,9 @@ export function WheelOfFortune({
       const progress = Math.min(1, Math.max(0, elapsed / duration));
       const eased = easeOutCubic(progress);
 
-      const currentAngle = eased * targetRotationDeg;
+      // Interpolate from the spin's starting rotation so the wheel never jumps
+      // at spin start, finishing exactly on the winning segment's centre.
+      const currentAngle = baseRotation + eased * (targetRotation - baseRotation);
       setRotationDeg(currentAngle);
 
       // Track peg clicks as segments pass 12 o'clock
@@ -205,8 +247,7 @@ export function WheelOfFortune({
     isSpinning,
     spinStartTime,
     spinDurationMs,
-    targetRotationDeg,
-    winningSegmentIndex,
+    landOffsetDeg,
     segmentAngle,
     winningTicketNumber,
     onSpinComplete,

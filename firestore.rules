@@ -130,12 +130,29 @@ service cloud.firestore {
         == resource.data.get("walletBalanceKobo", null);
     }
 
+    // Referral attribution and earnings are likewise server-only. Clients
+    // can read their own values but never write referredBy, their code, or
+    // any commission/balance counter — these only move through the Admin
+    // SDK inside validated server functions (attributeReferral, the
+    // commission engine in issueOrderTickets, payout settlement).
+    function referralUnchanged() {
+      return request.resource.data.get("referredBy", null) == resource.data.get("referredBy", null)
+        && request.resource.data.get("referredByCode", null) == resource.data.get("referredByCode", null)
+        && request.resource.data.get("referralCode", null) == resource.data.get("referralCode", null)
+        && request.resource.data.get("referralEarningsKobo", null) == resource.data.get("referralEarningsKobo", null)
+        && request.resource.data.get("referralEarnedTotalKobo", null) == resource.data.get("referralEarnedTotalKobo", null)
+        && request.resource.data.get("referralPendingPayoutKobo", null) == resource.data.get("referralPendingPayoutKobo", null)
+        && request.resource.data.get("referralTreeCount", null) == resource.data.get("referralTreeCount", null)
+        && request.resource.data.get("inviteOpens", null) == resource.data.get("inviteOpens", null);
+    }
+
     match /users/{userId} {
       allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
       allow create: if request.auth != null && (request.auth.uid == userId || isAdmin());
       allow update: if request.auth != null
         && (request.auth.uid == userId || isAdmin())
-        && walletUnchanged();
+        && walletUnchanged()
+        && referralUnchanged();
       allow delete: if request.auth != null && (request.auth.uid == userId || isAdmin());
 
       // Wallet ledger is append-only from the server (Admin SDK bypasses
@@ -153,6 +170,29 @@ service cloud.firestore {
       match /notifications/{notifId} {
         allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
       }
+
+      // Referral commission ledger — written by the server inside the same
+      // transaction that issues tickets. Owners may read their own ledger
+      // (dashboard + transactions feed) but nobody can write from a client.
+      match /referralCommissions/{txId} {
+        allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+        allow write: if false;
+      }
+    }
+
+    // Referral code registry — codes appear in public invite URLs, but
+    // resolution and attribution go through server functions only, so
+    // clients get no read/write access here at all.
+    match /referralCodes/{codeId} {
+      allow read, write: if false;
+    }
+
+    // Referral payout requests — created and settled by server functions
+    // (requestReferralPayout / adminSetPayoutStatus). Owners and admins may
+    // read; clients can never create or mutate payout docs directly.
+    match /payouts/{payoutId} {
+      allow read: if request.auth != null && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow write: if false;
     }
 
     // Public username registry for unique username validation
@@ -197,6 +237,36 @@ service cloud.firestore {
       allow create: if isAdmin();
       allow read: if isAdmin();
       allow update, delete: if false;
+    }
+
+    // User notification feed — personal docs carry userId = owner, global
+    // broadcasts carry userId == "". Owners read their own + broadcasts; only
+    // admin sessions (or the Admin SDK, which bypasses rules) create docs.
+    // Personal readAt updates come from the owner's bell; broadcast read
+    // state lives in localStorage and never touches Firestore.
+    match /notifications/{notifId} {
+      allow read: if request.auth != null
+        && (resource.data.userId == request.auth.uid
+            || resource.data.userId == ""
+            || isAdmin());
+      allow create: if isAdmin();
+      allow update: if request.auth != null
+        && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // Web-push device subscriptions — written only by server functions
+    // (Admin SDK); clients never touch this collection directly.
+    match /pushSubscriptions/{subId} {
+      allow read, write: if false;
+    }
+
+    // Outbound web-push queue — stamped by the admin draw flow and drained
+    // by the /api/notify-tick cron worker (Admin SDK bypasses these rules).
+    match /pushOutbox/{boxId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
     }
 
     // Fraud case review states — admin only.

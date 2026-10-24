@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight, Wallet, Users, Ticket, Trophy, Copy, Check, Clock } from "lucide-react";
-import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
+import { collection, doc, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 
 import { DashboardAppShell } from "@/components/raffila/dashboard/app-shell";
 import { Button } from "@/components/ui/button";
@@ -115,6 +115,34 @@ export function DashboardOverviewPage() {
   const greeting = lagosGreeting();
   const uid = user?.id?.startsWith("firebase_") ? user.id.slice("firebase_".length) : user?.id;
 
+  // Live referral stats + code from the user's own document.
+  const [referral, setReferral] = useState({
+    availableKobo: 0,
+    totalNetwork: 0,
+    code: "",
+    loaded: false,
+  });
+  useEffect(() => {
+    if (!uid) return;
+    const unsub = onSnapshot(
+      doc(db, "users", uid),
+      (snap) => {
+        const v = (snap.exists() ? snap.data() : {}) as Record<string, unknown>;
+        const counts = (v["referralTreeCount"] ?? {}) as Record<string, unknown>;
+        const n = (x: unknown) => Number(x) || 0;
+        setReferral({
+          availableKobo: n(v["referralEarningsKobo"]),
+          totalNetwork:
+            n(counts["l1"]) + n(counts["l2"]) + n(counts["l3"]) + n(counts["l4"]) + n(counts["l5"]),
+          code: String(v["referralCode"] ?? ""),
+          loaded: true,
+        });
+      },
+      () => setReferral((r) => ({ ...r, loaded: true })),
+    );
+    return () => unsub();
+  }, [uid]);
+
   // Live entries for this user, written server-side on confirmed payment.
   const [rawEntries, setRawEntries] = useState<RawEntry[]>([]);
   useEffect(() => {
@@ -173,7 +201,10 @@ export function DashboardOverviewPage() {
     });
   }, [rawEntries, competitions, uid]);
 
-  const totalTickets = useMemo(() => resolvedEntries.reduce((n, e) => n + e.quantity, 0), [resolvedEntries]);
+  const totalTickets = useMemo(
+    () => resolvedEntries.reduce((n, e) => n + e.quantity, 0),
+    [resolvedEntries],
+  );
   const competitionsEntered = useMemo(
     () => new Set(resolvedEntries.map((e) => e.competitionSlug).filter(Boolean)).size,
     [resolvedEntries],
@@ -183,9 +214,15 @@ export function DashboardOverviewPage() {
     [resolvedEntries],
   );
   const activeCompetitionsCount = activeCompetitions.length;
-  const prizesWon = useMemo(() => resolvedEntries.filter((e) => e.isWinner).length, [resolvedEntries]);
+  const prizesWon = useMemo(
+    () => resolvedEntries.filter((e) => e.isWinner).length,
+    [resolvedEntries],
+  );
   const wonValueKobo = useMemo(
-    () => resolvedEntries.filter((e) => e.isWinner).reduce((n, e) => n + (e.prizeValueKobo || e.amountKobo), 0),
+    () =>
+      resolvedEntries
+        .filter((e) => e.isWinner)
+        .reduce((n, e) => n + (e.prizeValueKobo || e.amountKobo), 0),
     [resolvedEntries],
   );
 
@@ -197,7 +234,13 @@ export function DashboardOverviewPage() {
           competition: e.competitionTitle,
           tickets: e.quantity,
           drawDate: e.drawDate,
-          status: e.isWinner ? "Won" : e.isConcluded ? "Completed" : e.status === "REFUNDED" ? "Lost" : "Entered",
+          status: e.isWinner
+            ? "Won"
+            : e.isConcluded
+              ? "Completed"
+              : e.status === "REFUNDED"
+                ? "Lost"
+                : "Entered",
         };
       }),
     [resolvedEntries],
@@ -241,7 +284,7 @@ export function DashboardOverviewPage() {
                   Referral earnings
                 </p>
                 <p className="mt-1 break-words font-display text-lg font-extrabold text-ink sm:text-xl lg:text-2xl">
-                  {formatNaira(0)}
+                  {formatNaira(referral.availableKobo)}
                 </p>
               </div>
               <Button asChild variant="primary" size="md" className="w-full sm:w-auto">
@@ -277,10 +320,17 @@ export function DashboardOverviewPage() {
           />
           <KpiCard
             label="Referrals recruited"
-            value="0"
+            value={String(referral.totalNetwork)}
             sub="In your network"
             icon={<Users className="size-5 text-coral" />}
             iconBg="bg-coral/10"
+            right={
+              referral.code ? (
+                <Button asChild variant="outline" size="sm" className="mt-3 w-full text-xs">
+                  <Link to="/dashboard/referrals">Copy referral link</Link>
+                </Button>
+              ) : null
+            }
           />
         </div>
 

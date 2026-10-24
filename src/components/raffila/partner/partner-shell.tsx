@@ -23,7 +23,6 @@ import {
   UserCircle2,
   Menu,
   Search,
-  Bell,
   LogOut,
   Gem,
   Car,
@@ -35,6 +34,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { useAuthSession, useAuthActions } from "@/hooks/useAuthSession";
+import { NotificationBell } from "@/components/raffila/notification-bell";
 import { partnerStore } from "@/lib/partner-store";
 import type { PartnerProfile } from "@/types/partner";
 
@@ -353,18 +353,7 @@ export function PartnerShell({ children, title, activeNav }: PartnerShellProps) 
                 placeholder="Search listings, entries..."
               />
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-full relative shrink-0"
-              aria-label="Partner notifications"
-            >
-              <Bell className="w-5 h-5" />
-              <span
-                className="absolute top-2 right-2 w-2 h-2 rounded-full bg-coral border-2 border-paper"
-                aria-hidden="true"
-              />
-            </Button>
+            <NotificationBell className="shrink-0" />
             <Avatar className="w-9 h-9 shrink-0 lg:hidden">
               <AvatarFallback className="bg-mint/40 text-ink font-display font-bold text-xs">
                 MA

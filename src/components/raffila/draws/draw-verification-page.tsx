@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ShieldCheck,
@@ -16,11 +16,13 @@ import {
   ArrowLeft,
   CalendarDays,
   MapPin,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -107,6 +109,105 @@ function copyText(value: string, label = "Copied") {
       icon: <CheckCircle2 className="size-4 text-mint" />,
     });
   });
+}
+
+/**
+ * Paste-in checker for the published snapshot hash / beacon seed.
+ *
+ * The Copy buttons alone give no feedback — this lets a participant paste the
+ * value they computed (or received from a third party) and confirm it matches
+ * what Raffila published for this draw.
+ */
+export function normalizePublishedValue(value: string): string {
+  return value.trim().toLowerCase().replace(/^0x/, "");
+}
+
+function VerifyValue({
+  label,
+  expected,
+  placeholder,
+  valueLabel,
+}: {
+  label: string;
+  expected: string;
+  placeholder: string;
+  valueLabel: string;
+}) {
+  const id = useId();
+  const [input, setInput] = useState("");
+  const [outcome, setOutcome] = useState<"match" | "mismatch" | null>(null);
+
+  const verify = () => {
+    if (!normalizePublishedValue(input)) {
+      setOutcome(null);
+      return;
+    }
+    const isMatch = normalizePublishedValue(input) === normalizePublishedValue(expected);
+    setOutcome(isMatch ? "match" : "mismatch");
+    if (isMatch) {
+      toast.success(`${valueLabel} verified`, {
+        className: "!bg-mint/30 !text-ink !border-0 !ring-1 !ring-mint/40",
+        icon: <CheckCircle2 className="size-4 text-mint" />,
+      });
+    } else {
+      toast.error(`${valueLabel} does not match this draw`);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-xl bg-cream p-3 ring-1 ring-ink/10">
+      <label htmlFor={id} className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-ink/50">
+        {label}
+      </label>
+      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <Input
+          id={id}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setOutcome(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              verify();
+            }
+          }}
+          placeholder={placeholder}
+          spellCheck={false}
+          autoComplete="off"
+          autoCapitalize="off"
+          className="min-w-0 flex-1 bg-paper font-mono text-[11px]"
+        />
+        <Button
+          type="button"
+          onClick={verify}
+          disabled={!normalizePublishedValue(input)}
+          className="shrink-0 bg-ink text-cream hover:bg-ink/90"
+        >
+          Verify
+        </Button>
+      </div>
+      {outcome && (
+        <p
+          className={cn(
+            "mt-2 inline-flex items-center gap-1.5 text-xs font-extrabold",
+            outcome === "match" ? "text-mint-700" : "text-coral",
+          )}
+        >
+          {outcome === "match" ? (
+            <>
+              <CheckCircle2 className="size-4" /> Matches the published {valueLabel.toLowerCase()}
+            </>
+          ) : (
+            <>
+              <XCircle className="size-4" /> Does not match the published {valueLabel.toLowerCase()}
+            </>
+          )}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function HowStepCard({
@@ -387,6 +488,12 @@ export function DrawVerificationPage({ campaignId }: { campaignId?: string }) {
               {record.snapshotHash}
             </p>
           </div>
+          <VerifyValue
+            label="Confirm the hash"
+            expected={record.snapshotHash}
+            valueLabel="Snapshot hash"
+            placeholder="Paste the SHA-256 hash you computed"
+          />
           <p className="mt-4 text-xs font-bold leading-relaxed text-ink/60">
             This snapshot was taken at <span className="font-extrabold text-ink">T-5 seconds</span>{" "}
             before draw start. The hash is published so participants can confirm no entries were
@@ -433,6 +540,12 @@ export function DrawVerificationPage({ campaignId }: { campaignId?: string }) {
               0x{record.beaconSeed}
             </p>
           </div>
+          <VerifyValue
+            label="Confirm the seed"
+            expected={record.beaconSeed}
+            valueLabel="Beacon seed"
+            placeholder="Paste the 64-char seed hex (0x optional)"
+          />
           <p className="mt-4 text-xs font-bold leading-relaxed text-ink/60">
             This seed is <span className="font-extrabold text-ink">unknowable to Raffila</span> and
             determined after the snapshot. Raffila cannot predict or bias the seed.

@@ -38,6 +38,26 @@ export default defineConfig({
     optimizeDeps: {
       exclude: ["firebase-admin", "firebase-admin/app", "firebase-admin/firestore"],
     },
+    // Firebase client SDK is ~560KB (firestore alone ~470KB). Without splitting
+    // it lands in the monolithic main chunk that must be parsed before the
+    // page becomes interactive; as separate vendor chunks the browser caches
+    // them independently across deploys.
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id: string) {
+            // Windows ids use backslashes — normalize before matching.
+            const norm = id.replace(/\\/g, "/");
+            if (norm.includes("node_modules")) {
+              if (norm.includes("@firebase/firestore")) return "vendor-firestore";
+              if (norm.includes("@firebase/") || norm.includes("/firebase/"))
+                return "vendor-firebase";
+            }
+            return undefined;
+          },
+        },
+      },
+    },
     // The release pipeline (scripts/build-namecheap.ps1) writes then deletes
     // .output/ and drops zips into deploy/ while `npm run dev` may be running.
     // Vite's watcher was crashing on those directories with

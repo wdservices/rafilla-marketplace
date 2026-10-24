@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Download,
   CalendarDays,
@@ -12,8 +12,10 @@ import {
   UsersRound,
   ClipboardList,
   TrendingUp,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { collection, doc, getDoc, getDocs, limit, query } from "firebase/firestore";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,15 +30,25 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { AdminShell } from "@/components/raffila/admin/admin-shell";
+import { db } from "@/lib/firebase";
+import {
+  buildReportTable,
+  emptyReportSource,
+  exportReportTable,
+  type ExportFormat,
+  type RawDoc,
+  type ReportKey,
+  type ReportSource,
+} from "@/lib/report-export";
 import { cn, formatNaira } from "@/lib/utils";
 
 interface ExportDef {
-  key: string;
+  key: ReportKey;
   label: string;
   description: string;
   icon: React.ComponentType<{ className?: string }>;
   tone: "ink" | "coral" | "sky" | "mint" | "lemon" | "lilac";
-  formats: Array<"csv" | "xlsx" | "json">;
+  formats: ExportFormat[];
   lastRun: string;
 }
 
@@ -66,7 +78,7 @@ const EXPORT_CARDS: ExportDef[] = [
     icon: Users,
     tone: "sky",
     formats: ["csv", "xlsx"],
-    lastRun: "Today · 07:15",
+    lastRun: "Not yet exported",
   },
   {
     key: "revenue",
@@ -75,7 +87,7 @@ const EXPORT_CARDS: ExportDef[] = [
     icon: DollarSign,
     tone: "ink",
     formats: ["csv", "xlsx"],
-    lastRun: "Today · 07:15",
+    lastRun: "Not yet exported",
   },
   {
     key: "competitions",
@@ -84,7 +96,7 @@ const EXPORT_CARDS: ExportDef[] = [
     icon: Trophy,
     tone: "coral",
     formats: ["csv"],
-    lastRun: "Today · 07:15",
+    lastRun: "Not yet exported",
   },
   {
     key: "payouts",
@@ -93,7 +105,7 @@ const EXPORT_CARDS: ExportDef[] = [
     icon: Banknote,
     tone: "lilac",
     formats: ["csv", "xlsx"],
-    lastRun: "Today · 07:15",
+    lastRun: "Not yet exported",
   },
   {
     key: "referrals",
@@ -102,16 +114,16 @@ const EXPORT_CARDS: ExportDef[] = [
     icon: UsersRound,
     tone: "lemon",
     formats: ["csv"],
-    lastRun: "Yesterday · 23:55",
+    lastRun: "Not yet exported",
   },
   {
     key: "audit",
     label: "Full audit JSON",
-    description: "Complete immutable audit log export · NDJSON format.",
+    description: "Complete immutable audit log export · structured JSON with row metadata.",
     icon: ClipboardList,
     tone: "mint",
     formats: ["json"],
-    lastRun: "Today · 07:15",
+    lastRun: "Not yet exported",
   },
 ];
 
@@ -231,19 +243,110 @@ function HBarChart({
 
 export function AdminReportsPage() {
   const [granularity, setGranularity] = useState("day");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [source, setSource] = useState<ReportSource>(emptyReportSource);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [busyKey, setBusyKey] = useState<ReportKey | null>(null);
+  const [lastRuns, setLastRuns] = useState<Record<string, string>>(() =>
+    Object.fromEntries(EXPORT_CARDS.map((c) => [c.key, c.lastRun])),
+  );
 
-  const runReport = (r: ExportDef, fmt: "csv" | "xlsx" | "json") => {
-    toast.success("Report generating…", {
-      description: `${r.label} · ${fmt.toUpperCase()} queued. Last snapshot ${r.lastRun}.`,
-    });
-    setTimeout(
-      () =>
-        toast.success(`${r.label}.${fmt} ready`, {
-          description: "Download queued in your browser.",
-        }),
-      900,
-    );
-  };
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const [usersSnap, compsSnap, payoutsSnap, logsSnap, configSnap] = await Promise.all([
+          getDocs(query(collection(db, "users"), limit(300))),
+          getDocs(query(collection(db, "competitions"), limit(100))),
+          getDocs(query(collection(db, "payouts"), limit(200))),
+          getDocs(query(collection(db, "activityLogs"), limit(500))),
+          getDoc(doc(db, "platformSettings", "raffila_config")),
+        ]);
+        if (cancelled) return;
+
+        const toRaw = (snap: typeof usersSnap): RawDoc[] =>
+          snap.docs.map((d) => ({ id: d.id, data: d.data() as Record<string, unknown> }));
+        const users = toRaw(usersSnap);
+
+        // referralCommissions is a per-user subcollection, so only users that
+        // actually earned a commission are worth a round-trip.
+        const earners = users
+          .filter((u) => Number(u.data["referralEarnedTotalKobo"] ?? 0) > 0)
+          .slice(0, 120);
+        const commissionSnaps = await Promise.all(
+          earners.map((u) =>
+            getDocs(query(collection(db, "users", u.id, "referralCommissions"), limit(200))),
+          ),
+        );
+        if (cancelled) return;
+
+        const commissions: RawDoc[] = [];
+        commissionSnaps.forEach((snap, i) => {
+          const ownerId = earners[i]!.id;
+          snap.docs.forEach((d) =>
+            commissions.push({
+              id: d.id,
+              data: { ...(d.data() as Record<string, unknown>), beneficiaryId: ownerId },
+            }),
+          );
+        });
+
+        const config = (configSnap.data() ?? {}) as Record<string, unknown>;
+        const pool = (config["rewardPool"] ?? {}) as Record<string, unknown>;
+
+        setSource({
+          users,
+          competitions: toRaw(compsSnap),
+          payouts: toRaw(payoutsSnap),
+          commissions,
+          logs: toRaw(logsSnap),
+          rewardPoolPct: Number(pool["contributionPct"] ?? 0) || 0,
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError((err as { message?: string })?.message || String(err));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  const runReport = useCallback(
+    async (r: ExportDef, fmt: ExportFormat) => {
+      if (busyKey) return;
+      setBusyKey(r.key);
+      try {
+        const report = buildReportTable(r.key, source, { from: dateFrom, to: dateTo });
+        if (!report.rows.length) {
+          toast.error(`${r.label} is empty`, {
+            description: "No rows fall inside the selected date range. Widen it and retry.",
+          });
+          return;
+        }
+        const { filename, bytes } = await exportReportTable(report, fmt);
+        setLastRuns((prev) => ({ ...prev, [r.key]: "Just now" }));
+        toast.success(`${filename} downloaded`, {
+          description: `${report.rows.length.toLocaleString("en-NG")} rows · ${(bytes / 1024).toFixed(0)} KB`,
+        });
+      } catch (err) {
+        toast.error(`${r.label} export failed`, {
+          description: (err as { message?: string })?.message || String(err),
+        });
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [source, dateFrom, dateTo, busyKey],
+  );
 
   const revenueByMonth = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   const ticketsByCat = [
@@ -283,15 +386,33 @@ export function AdminReportsPage() {
             <CalendarDays className="size-3.5" />
             <Input
               type="date"
-              defaultValue="2026-01-01"
-              className="h-7 w-32 border-0 bg-transparent p-0 font-bold text-ink shadow-none focus-visible:ring-0"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              placeholder="From"
+              aria-label="Report start date"
+              className="h-7 w-32 border-0 bg-transparent p-0 font-bold text-ink shadow-none focus-visible:ring-0 [&::-webkit-calendar-picker-indicator]:opacity-50"
             />
             <span>→</span>
             <Input
               type="date"
-              defaultValue="2026-03-12"
-              className="h-7 w-32 border-0 bg-transparent p-0 font-bold text-ink shadow-none focus-visible:ring-0"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              placeholder="To"
+              aria-label="Report end date"
+              className="h-7 w-32 border-0 bg-transparent p-0 font-bold text-ink shadow-none focus-visible:ring-0 [&::-webkit-calendar-picker-indicator]:opacity-50"
             />
+            {(dateFrom || dateTo) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDateFrom("");
+                  setDateTo("");
+                }}
+                className="rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-coral hover:bg-coral/10"
+              >
+                Clear
+              </button>
+            )}
           </div>
           <Select value={granularity} onValueChange={setGranularity}>
             <SelectTrigger className="h-10 w-40 rounded-full bg-white ring-1 ring-ink/10 px-4 text-xs font-extrabold text-ink shadow-none focus:ring-coral">
@@ -315,6 +436,25 @@ export function AdminReportsPage() {
         </div>
       </header>
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs font-bold text-ink/55">
+          {loading
+            ? "Loading report data from Firestore…"
+            : loadError
+              ? `Could not load report data · ${loadError}`
+              : `${source.users.length.toLocaleString("en-NG")} users · ${source.competitions.length.toLocaleString("en-NG")} competitions · ${source.payouts.length.toLocaleString("en-NG")} payouts · ${source.commissions.length.toLocaleString("en-NG")} commissions`}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setRefreshKey((k) => k + 1)}
+          disabled={loading}
+          className="rounded-full h-8 px-4 text-xs font-bold"
+        >
+          <RefreshCw className={cn("size-3.5 mr-1.5", loading && "animate-spin")} /> Refresh data
+        </Button>
+      </div>
+
       <section className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {EXPORT_CARDS.map((r) => (
           <Card
@@ -327,7 +467,7 @@ export function AdminReportsPage() {
                   <r.icon className={cn("size-5", toneIcon[r.tone])} />
                 </div>
                 <Badge className="rounded-full bg-cream px-2.5 py-1 text-[10px] font-extrabold text-ink/60 ring-1 ring-ink/10">
-                  {r.lastRun}
+                  {lastRuns[r.key]}
                 </Badge>
               </div>
               <h3 className="mt-4 font-display text-xl font-extrabold text-ink">{r.label}</h3>
@@ -335,24 +475,31 @@ export function AdminReportsPage() {
                 {r.description}
               </p>
               <div className="mt-5 flex flex-wrap gap-2 pt-2">
-                {r.formats.map((fmt) => (
-                  <Button
-                    key={fmt}
-                    variant={fmt === "csv" ? "primary" : "outline"}
-                    size="sm"
-                    onClick={() => runReport(r, fmt)}
-                    className="rounded-full h-9 px-4"
-                  >
-                    {fmt === "xlsx" ? (
-                      <FileSpreadsheet className="size-3.5 mr-1.5" />
-                    ) : fmt === "json" ? (
-                      <FileJson className="size-3.5 mr-1.5" />
-                    ) : (
-                      <Download className="size-3.5 mr-1.5" />
-                    )}
-                    {fmt.toUpperCase()}
-                  </Button>
-                ))}
+                {r.formats.map((fmt) => {
+                  const busy = busyKey === r.key;
+                  return (
+                    <Button
+                      key={fmt}
+                      variant={fmt === "csv" ? "primary" : "outline"}
+                      size="sm"
+                      onClick={() => void runReport(r, fmt)}
+                      disabled={busy || loading || !!loadError}
+                      className="rounded-full h-9 px-4"
+                      aria-label={`Download ${r.label} as ${fmt.toUpperCase()}`}
+                    >
+                      {busy ? (
+                        <RefreshCw className="size-3.5 mr-1.5 animate-spin" />
+                      ) : fmt === "xlsx" ? (
+                        <FileSpreadsheet className="size-3.5 mr-1.5" />
+                      ) : fmt === "json" ? (
+                        <FileJson className="size-3.5 mr-1.5" />
+                      ) : (
+                        <Download className="size-3.5 mr-1.5" />
+                      )}
+                      {fmt.toUpperCase()}
+                    </Button>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

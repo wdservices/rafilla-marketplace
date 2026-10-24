@@ -9,9 +9,9 @@
  */
 
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
-import { FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, getFirestore, type Firestore } from "firebase-admin/firestore";
 
-export { FieldValue };
+export { FieldPath, FieldValue };
 
 let app: App | undefined;
 let db: Firestore | undefined;

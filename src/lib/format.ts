@@ -69,6 +69,11 @@ export function lagosDateTime(iso: string | number): string {
   return `${lagosDateShort(iso)}, ${lagosTime(iso)} GMT+1`;
 }
 
+/** Audit stamp "08 Mar 2026, 3:00 PM GMT+1" — always carries the year. */
+export function lagosDateTimeWithYear(iso: string | number): string {
+  return `${lagosDateWithYear(iso)}, ${lagosTime(iso)} GMT+1`;
+}
+
 /** Day label with weekday: "Monday, 16 September 2026". */
 export function lagosDayLabel(iso: string | number): string {
   return new Date(iso).toLocaleDateString("en-NG", {
