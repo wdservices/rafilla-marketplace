@@ -15,6 +15,20 @@ service cloud.firestore {
       );
     }
 
+    // Staff = role field on the caller's own user document. Staff accounts
+    // are created by admins in the Admin Settings page and routed to /crm.
+    function isStaff() {
+      return request.auth != null && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "staff"
+      );
+    }
+
+    // Admin or staff — both may access CRM data.
+    function isCrmCapable() {
+      return isAdmin() || isStaff();
+    }
+
     // A non-admin signed-in user may only bump the entriesSold purchase
     // counter — never status, entriesClosed, winners, or lifecycle fields.
     function entriesSoldOnly() {
@@ -148,7 +162,49 @@ service cloud.firestore {
 
     // CRM staff activities (call duration, outcome, notes, lead details)
     match /crm_activities/{activityId} {
-      allow read, create, update: if true;
+      allow read, create, update: if isCrmCapable();
+      allow delete: if isAdmin();
+    }
+
+    // CRM deal pipeline — admins and staff only.
+    match /crm_deals/{dealId} {
+      allow read, create, update, delete: if isCrmCapable();
+    }
+
+    // CRM follow-up tasks & reminders.
+    match /crm_tasks/{taskId} {
+      allow read, create, update, delete: if isCrmCapable();
+    }
+
+    // Shared contact notes / collaboration thread.
+    match /crm_notes/{noteId} {
+      allow read, create: if isCrmCapable();
+      allow update: if isCrmCapable() && resource.data.authorId == request.auth.uid;
+      allow delete: if isCrmCapable() &&
+        (resource.data.authorId == request.auth.uid || isAdmin());
+    }
+
+    // Reusable email / WhatsApp / call-script templates.
+    match /crm_templates/{templateId} {
+      allow read, create: if isCrmCapable();
+      allow update, delete: if isCrmCapable();
+    }
+
+    // Staff access keys — created and revoked by admins. A signed-in user may
+    // read their own assignment so the CRM can show their details, and may
+    // only stamp their own lastUsedAt timestamp.
+    match /staffKeys/{keyId} {
+      allow read: if request.auth != null && (
+        isAdmin() ||
+        resource.data.userId == request.auth.uid ||
+        resource.data.email == request.auth.token.email
+      );
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (
+        request.auth != null &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["lastUsedAt"])
+      );
       allow delete: if isAdmin();
     }
 
@@ -175,8 +231,11 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Purchase ledger — CRM staff read this to show real ticket counts and
+      // lifetime spend per lead. Writes stay with the owner or an admin.
       match /entries/{entryId} {
-        allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+        allow read: if request.auth != null && (request.auth.uid == userId || isCrmCapable());
+        allow write: if request.auth != null && (request.auth.uid == userId || isAdmin());
       }
 
       match /notifications/{notifId} {

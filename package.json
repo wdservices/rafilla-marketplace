@@ -17,7 +17,8 @@
     "e2e:ui": "playwright test --ui",
     "seed:db": "vite-node scripts/seed-db.ts",
     "seed:wallets": "vite-node scripts/seed-wallets.ts",
-    "seed:admin": "vite-node scripts/seed-admin.ts"
+    "seed:admin": "vite-node scripts/seed-admin.ts",
+    "seed:staff": "vite-node scripts/seed-staff.ts"
   },
   "overrides": {
     "rolldown": "1.2.1",

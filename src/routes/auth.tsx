@@ -105,6 +105,9 @@ export const Route = createFileRoute("/auth")({
     if (session?.user.role === "admin") {
       throw redirect({ to: "/admin" });
     }
+    if (session?.user.role === "staff") {
+      throw redirect({ to: "/crm" });
+    }
     if (session?.user.role === "user") {
       throw redirect({ to: "/dashboard" });
     }

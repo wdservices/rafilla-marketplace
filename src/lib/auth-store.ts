@@ -7,7 +7,7 @@ import {
   type FirebaseUser,
 } from "./firebase-auth";
 
-export type UserRole = "user" | "admin" | "partner";
+export type UserRole = "user" | "admin" | "partner" | "staff";
 
 export type RaffilaUser = {
   id: string;
@@ -190,8 +190,9 @@ export function canAccessRoute(input: { pathname: string }): AuthGateResult {
   const isDashboardRoute =
     input.pathname === "/dashboard" || input.pathname.startsWith("/dashboard/");
   const isPartnerRoute = input.pathname === "/partner" || input.pathname.startsWith("/partner/");
+  const isCrmRoute = input.pathname === "/crm" || input.pathname.startsWith("/crm/");
 
-  if (!isAdminRoute && !isDashboardRoute && !isPartnerRoute) {
+  if (!isAdminRoute && !isDashboardRoute && !isPartnerRoute && !isCrmRoute) {
     return { allowed: true };
   }
 
@@ -211,18 +212,43 @@ export function canAccessRoute(input: { pathname: string }): AuthGateResult {
     emit(session);
   }
 
+  const isStaff = session.user.role === "staff";
+
+  // Admin routes: only admins
   if (isAdminRoute && !isUserAdmin) {
+    return {
+      allowed: false,
+      reason: "unauthorized",
+      redirect: session.user.role === "partner" ? "/partner" : session.user.role === "staff" ? "/crm" : "/dashboard",
+    };
+  }
+
+  // CRM routes: only staff (admins can also access if they want, but staff cannot access admin)
+  if (isCrmRoute && !isStaff && !isUserAdmin) {
     return {
       allowed: false,
       reason: "unauthorized",
       redirect: session.user.role === "partner" ? "/partner" : "/dashboard",
     };
   }
+
+  // Staff must not enter the admin dashboard
+  if (isAdminRoute && isStaff) {
+    return {
+      allowed: false,
+      reason: "unauthorized",
+      redirect: "/crm",
+    };
+  }
+
   if (isDashboardRoute && isUserAdmin) {
     return { allowed: false, reason: "unauthorized", redirect: "/admin" };
   }
   if (isDashboardRoute && session.user.role === "partner") {
     return { allowed: false, reason: "unauthorized", redirect: "/partner" };
+  }
+  if (isDashboardRoute && isStaff) {
+    return { allowed: false, reason: "unauthorized", redirect: "/crm" };
   }
   if (isPartnerRoute && session.user.role !== "partner" && !isUserAdmin) {
     return { allowed: false, reason: "unauthorized", redirect: "/become-a-partner" };

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   collection,
   doc,
@@ -21,13 +22,12 @@ import {
   AlertTriangle,
   Mail,
   Crown,
+  Search,
   Activity,
-  KeyRound,
   Copy,
   Check,
   Trash2,
   ExternalLink,
-  Sparkles,
 } from "lucide-react";
 
 import { AdminShell } from "@/components/raffila/admin/admin-shell";
@@ -53,11 +53,11 @@ import { getEmailDocKey, normalizeEmail } from "@/lib/user-validation";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { cn } from "@/lib/utils";
 import {
+  assignStaffToUser,
   getStaffList,
-  generateStaffKey,
-  revokeStaffKey,
-  activateStaffKey,
-  deleteStaffKey,
+  fetchStaffAssignments,
+  revokeStaffAccess,
+  reactivateStaffAccess,
   StaffMember,
 } from "@/lib/crm-service";
 
@@ -123,54 +123,172 @@ export function AdminSettingsPage() {
   // ---- Staff & CRM Keys ----
   const [staffList, setStaffList] = useState<StaffMember[]>(() => getStaffList());
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
-  const [newStaffName, setNewStaffName] = useState("");
-  const [newStaffEmail, setNewStaffEmail] = useState("");
-  const [newStaffRole, setNewStaffRole] = useState("Sales Representative");
-  const [createdKeyStaff, setCreatedKeyStaff] = useState<StaffMember | null>(null);
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const refreshStaff = () => setStaffList(getStaffList());
+  // ---- Assign staff to existing Firestore user ----
+  const [staffSearchQuery, setStaffSearchQuery] = useState("");
+  const [staffSearchResults, setStaffSearchResults] = useState<Array<{
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+  }>>([]);
+  const [staffSearchLoading, setStaffSearchLoading] = useState(false);
+  const [staffSearchSelected, setStaffSearchSelected] = useState<{
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+  } | null>(null);
+  const [staffGeneratingKey, setStaffGeneratingKey] = useState(false);
+  const [assignedStaff, setAssignedStaff] = useState<{ name: string; email: string } | null>(null);
 
-  const handleCopyStaffKey = (key: string) => {
-    navigator.clipboard.writeText(key);
-    setCopiedKey(key);
-    toast.success("Staff Access Key copied to clipboard", {
-      description: "Send this key to your sales representative to sign in at /staff or /crm",
-    });
-    setTimeout(() => setCopiedKey(null), 2500);
-  };
+  const refreshStaff = useCallback(async () => {
+    const rows = await fetchStaffAssignments();
+    setStaffList(
+      rows.map((r) => ({
+        id: r.id,
+        key: r.key,
+        name: r.name,
+        email: r.email,
+        role: "Sales Representative",
+        status: r.status,
+        createdAt: r.createdAt,
+        ...(r.lastUsedAt ? { lastLoginAt: r.lastUsedAt } : {}),
+      })),
+    );
+  }, []);
 
-  const handleGenerateKey = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newStaffName.trim() || !newStaffEmail.trim()) {
-      toast.error("Please enter staff name and email");
+  const handleSearchUsers = async () => {
+    const q = staffSearchQuery.trim();
+    if (!q) {
+      setStaffSearchResults([]);
       return;
     }
-    const staff = generateStaffKey(newStaffName, newStaffEmail, newStaffRole);
-    refreshStaff();
-    setCreatedKeyStaff(staff);
-    toast.success("Sales Staff Key generated successfully!");
-    setNewStaffName("");
-    setNewStaffEmail("");
-    setNewStaffRole("Sales Representative");
-  };
-
-  const handleToggleStaffStatus = (staff: StaffMember) => {
-    if (staff.status === "active") {
-      revokeStaffKey(staff.key);
-      toast.warning(`Revoked login key for ${staff.name}`);
-    } else {
-      activateStaffKey(staff.key);
-      toast.success(`Re-activated login key for ${staff.name}`);
+    setStaffSearchLoading(true);
+    try {
+      const snap = await getDocs(query(collection(db, "users"), limit(100)));
+      const qLower = q.toLowerCase();
+      const results: Array<{ id: string; email: string; name: string; role: string }> = [];
+      snap.docs.forEach((d) => {
+        const data = d.data() as Record<string, unknown>;
+        const email = (data["email"] as string) || "";
+        const name =
+          (data["displayName"] as string) ||
+          [data["firstName"], data["lastName"]].filter(Boolean).join(" ") ||
+          (data["handle"] as string) ||
+          "";
+        const role = (data["role"] as string) || "user";
+        if (
+          email.toLowerCase().includes(qLower) ||
+          name.toLowerCase().includes(qLower)
+        ) {
+          results.push({ id: d.id, email, name, role });
+        }
+      });
+      // Exclude existing admins and already-staff users from assignment
+      setStaffSearchResults(results.filter((r) => r.role !== "admin" && r.role !== "staff"));
+    } catch {
+      setStaffSearchResults([]);
+    } finally {
+      setStaffSearchLoading(false);
     }
-    refreshStaff();
   };
 
-  const handleDeleteStaffKey = (staff: StaffMember) => {
-    if (confirm(`Are you sure you want to delete access for ${staff.name}?`)) {
-      deleteStaffKey(staff.id);
-      toast.success(`Removed ${staff.name} from sales team`);
-      refreshStaff();
+  const handleAssignStaff = async () => {
+    if (!staffSearchSelected) return;
+    setStaffGeneratingKey(true);
+    try {
+      const res = await assignStaffToUser(
+        staffSearchSelected.id,
+        staffSearchSelected.email,
+        staffSearchSelected.name,
+      );
+
+      if (res.key) {
+        setAssignedStaff({
+          name: staffSearchSelected.name,
+          email: staffSearchSelected.email,
+        });
+        setStaffGeneratingKey(false);
+        toast.success(`${staffSearchSelected.name} is now a staff member`);
+        void logActivity({
+          eventType: "USER_UPDATE",
+          targetType: "user",
+          targetId: staffSearchSelected.id,
+          summary: `Assigned CRM staff access to ${staffSearchSelected.email}`,
+          details: {
+            role: "staff",
+            action: "staff_assigned",
+          },
+        });
+        void refreshStaff();
+      } else {
+        toast.error("Could not assign staff access", {
+          description: res.error || "Unknown error",
+        });
+        setStaffGeneratingKey(false);
+      }
+    } catch (err: any) {
+      toast.error("Could not assign staff access", {
+        description: err?.message || "Unknown error",
+      });
+      setStaffGeneratingKey(false);
+    }
+  };
+
+  const handleToggleStaffStatus = async (staff: StaffMember) => {
+    if (staff.status === "active") {
+      const ok = await revokeStaffAccess(staff.key);
+      if (!ok) {
+        toast.error("Could not revoke access", {
+          description: "Firestore rejected the change. Check your connection and try again.",
+        });
+        return;
+      }
+      toast.warning(`Revoked CRM access for ${staff.name}`, {
+        description: "Their account now returns to the normal customer dashboard.",
+      });
+      void logActivity({
+        eventType: "USER_UPDATE",
+        targetType: "user",
+        targetId: staff.id,
+        summary: `Revoked CRM staff access for ${staff.email}`,
+        details: { staffKey: staff.key, action: "staff_revoked" },
+      });
+    } else {
+      const ok = await reactivateStaffAccess(staff.key);
+      if (!ok) {
+        toast.error("Could not re-activate access");
+        return;
+      }
+      toast.success(`Re-activated CRM access for ${staff.name}`);
+      void logActivity({
+        eventType: "USER_UPDATE",
+        targetType: "user",
+        targetId: staff.id,
+        summary: `Re-activated CRM staff access for ${staff.email}`,
+        details: { staffKey: staff.key, action: "staff_reactivated" },
+      });
+    }
+    void refreshStaff();
+  };
+
+  const handleDeleteStaffKey = async (staff: StaffMember) => {
+    if (confirm(`Are you sure you want to remove CRM access for ${staff.name}?`)) {
+      const ok = await revokeStaffAccess(staff.key);
+      if (!ok) {
+        toast.error("Could not remove access");
+        return;
+      }
+      toast.success(`Removed ${staff.name} from the sales team`);
+      void logActivity({
+        eventType: "USER_UPDATE",
+        targetType: "user",
+        targetId: staff.id,
+        summary: `Removed CRM staff access for ${staff.email}`,
+        details: { staffKey: staff.key, action: "staff_removed" },
+      });
+      void refreshStaff();
     }
   };
 
@@ -244,7 +362,8 @@ export function AdminSettingsPage() {
   useEffect(() => {
     void fetchAdmins();
     void fetchInvites();
-  }, [fetchAdmins, fetchInvites]);
+    void refreshStaff();
+  }, [fetchAdmins, fetchInvites, refreshStaff]);
 
   const handleSendInvite = async () => {
     if (!inviteCandidate || inviting) return;
@@ -765,12 +884,12 @@ export function AdminSettingsPage() {
           </div>
         </Section>
 
-        {/* Staff & CRM Access Keys */}
+        {/* Staff & CRM Access */}
         <Section
-          icon={KeyRound}
+          icon={UserPlus}
           tone="bg-mint/30"
-          title="Staff & CRM Access Keys"
-          description="Generate isolated login keys for sales representatives. Staff use their key to sign in to the standalone Sales CRM at /crm or via the Unified Portal at /staff without accessing the super-admin dashboard."
+          title="Staff & CRM Access"
+          description="Give registered users CRM access. Staff keep their normal Raffila login but are routed to the Sales CRM instead of the customer dashboard."
         >
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-ink/8">
@@ -779,40 +898,41 @@ export function AdminSettingsPage() {
                   Active Sales Personnel ({staffList.filter((s) => s.status === "active").length})
                 </span>
                 <p className="text-[11px] font-bold text-ink/50 mt-0.5">
-                  Keys grant standalone access to client leads and call tracking only.
+                  Staff keep their normal Raffila login but land in the CRM, never the admin console.
                 </p>
               </div>
 
               <div className="flex items-center gap-2">
-                <a
-                  href="/crm"
-                  target="_blank"
-                  rel="noreferrer"
+                <Link
+                  to="/crm"
                   className="inline-flex items-center gap-1.5 h-10 px-4 rounded-full border border-ink/10 bg-cream/50 hover:bg-cream text-xs font-bold text-ink transition-colors"
                 >
                   <ExternalLink className="size-3.5 text-coral" />
                   View CRM Portal
-                </a>
+                </Link>
                 <Button
                   variant="primary"
                   onClick={() => {
-                    setCreatedKeyStaff(null);
+                    setStaffSearchQuery("");
+                    setStaffSearchResults([]);
+                    setStaffSearchSelected(null);
+                    setAssignedStaff(null);
                     setIsStaffModalOpen(true);
                   }}
                   className="h-10 rounded-full px-5 text-xs font-bold gap-1.5"
                 >
-                  <KeyRound className="size-3.5" />
-                  Generate Staff Key
+                  <UserPlus className="size-3.5" />
+                  Add a Staff
                 </Button>
               </div>
             </div>
 
             {staffList.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-ink/15 p-8 text-center text-xs font-bold text-ink/55 space-y-1">
-                <p className="font-extrabold text-ink text-sm">No Sales Access Keys Generated</p>
+                <p className="font-extrabold text-ink text-sm">No Staff Assigned Yet</p>
                 <p>
-                  Click &quot;Generate Staff Key&quot; above to issue a key for your sales
-                  representative.
+                  Click &quot;Add a Staff&quot; above to search for a registered user and give them
+                  CRM access.
                 </p>
               </div>
             ) : (
@@ -822,7 +942,6 @@ export function AdminSettingsPage() {
                     <tr>
                       <th className="py-3 px-4">Sales Rep</th>
                       <th className="py-3 px-4">Role / Scope</th>
-                      <th className="py-3 px-4">Login Key</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4">Last Active</th>
                       <th className="py-3 px-4 text-right">Actions</th>
@@ -836,23 +955,6 @@ export function AdminSettingsPage() {
                           <div className="text-[11px] font-mono text-ink/50">{staff.email}</div>
                         </td>
                         <td className="py-3.5 px-4 font-bold text-ink/75">{staff.role}</td>
-                        <td className="py-3.5 px-4 font-mono">
-                          <div className="inline-flex items-center gap-1.5 bg-cream/70 px-2.5 py-1 rounded-lg ring-1 ring-ink/10 text-ink text-[11px]">
-                            <span>{staff.key}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyStaffKey(staff.key)}
-                              className="text-ink/50 hover:text-ink transition-colors ml-1"
-                              title="Copy key"
-                            >
-                              {copiedKey === staff.key ? (
-                                <Check className="size-3.5 text-emerald-600" />
-                              ) : (
-                                <Copy className="size-3.5" />
-                              )}
-                            </button>
-                          </div>
-                        </td>
                         <td className="py-3.5 px-4">
                           {staff.status === "active" ? (
                             <Badge className="bg-emerald-500/10 text-emerald-700 border-emerald-500/20 text-[10px] font-extrabold">
@@ -903,117 +1005,177 @@ export function AdminSettingsPage() {
           </div>
         </Section>
 
-        {/* Modal: Generate Staff Key */}
+        {/* Modal: Assign Staff */}
         <Dialog open={isStaffModalOpen} onOpenChange={setIsStaffModalOpen}>
           <DialogContent className="sm:max-w-md bg-white">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 font-display text-xl text-ink">
-                <KeyRound className="size-5 text-coral" />
-                Generate Sales Staff Access Key
+                <UserPlus className="size-5 text-coral" />
+                Assign CRM Staff Access
               </DialogTitle>
               <DialogDescription className="text-xs text-ink/60">
-                Create an isolated access key for your sales representative to sign in at /staff or
-                /crm.
+                Give a registered user access to the Sales CRM. They sign in with their existing
+                Raffila email and password.
               </DialogDescription>
             </DialogHeader>
 
-            {createdKeyStaff ? (
-              <div className="space-y-4 py-2">
-                <div className="p-4 rounded-2xl bg-mint/30 border border-mint/40 text-center space-y-2">
-                  <p className="text-xs font-bold text-ink/75">
-                    Access Key Generated for{" "}
-                    <strong className="text-ink">{createdKeyStaff.name}</strong>
-                  </p>
-                  <div className="text-lg font-mono font-black tracking-wider text-ink bg-white py-2 px-3 rounded-xl border border-ink/10 inline-block shadow-xs">
-                    {createdKeyStaff.key}
-                  </div>
-                  <div>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => handleCopyStaffKey(createdKeyStaff.key)}
-                      className="gap-1.5 text-xs font-bold"
-                    >
-                      {copiedKey === createdKeyStaff.key ? (
-                        <Check className="size-3.5 text-white" />
-                      ) : (
-                        <Copy className="size-3.5 text-white" />
-                      )}
-                      Copy Access Key
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="text-xs text-ink/70 space-y-1 bg-cream/40 p-3 rounded-xl font-bold">
-                  <p className="text-ink font-extrabold">Dispatch Instructions:</p>
-                  <p>
-                    1. Send the key:{" "}
-                    <code className="font-mono text-coral">{createdKeyStaff.key}</code>
-                  </p>
-                  <p>
-                    2. Staff member visits:{" "}
-                    <code className="font-mono text-ink">https://raffila.com/staff</code>
-                  </p>
-                  <p>3. Select &quot;Sales & Outreach Staff&quot; and enter their key.</p>
-                </div>
-
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsStaffModalOpen(false)}>
-                    Done
-                  </Button>
-                </DialogFooter>
-              </div>
-            ) : (
-              <form onSubmit={handleGenerateKey} className="space-y-3.5 py-2">
+            <div className="space-y-4 py-2">
                 <div className="space-y-1">
-                  <Label className="text-xs font-extrabold text-ink">Full Name *</Label>
+                  <Label className="text-xs font-extrabold text-ink">Search by Name or Email</Label>
                   <Input
-                    required
-                    value={newStaffName}
-                    onChange={(e) => setNewStaffName(e.target.value)}
-                    placeholder="e.g. Samuel Adekunle"
-                    className="h-10 text-xs rounded-xl"
+                    type="search"
+                    value={staffSearchQuery}
+                    onChange={(e) => setStaffSearchQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") void handleSearchUsers(); }}
+                    placeholder="e.g. john.doe@company.com"
+                    className="h-10 rounded-xl border-0 bg-cream/50 pl-10 pr-4 text-sm font-bold text-ink ring-1 ring-ink/10 placeholder:text-ink/35 focus-visible:ring-coral focus-visible:ring-2"
                   />
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-xs font-extrabold text-ink">Corporate Email *</Label>
-                  <Input
-                    type="email"
-                    required
-                    value={newStaffEmail}
-                    onChange={(e) => setNewStaffEmail(e.target.value)}
-                    placeholder="e.g. samuel@raffila.com"
-                    className="h-10 text-xs rounded-xl"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-xs font-extrabold text-ink">Role / Territory</Label>
-                  <Input
-                    value={newStaffRole}
-                    onChange={(e) => setNewStaffRole(e.target.value)}
-                    placeholder="e.g. Senior Outreach Rep — Lagos"
-                    className="h-10 text-xs rounded-xl"
-                  />
-                </div>
-
-                <DialogFooter className="pt-2">
                   <Button
-                    type="button"
                     variant="outline"
-                    onClick={() => setIsStaffModalOpen(false)}
-                    className="text-xs"
+                    size="sm"
+                    onClick={() => void handleSearchUsers()}
+                    disabled={staffSearchLoading}
+                    className="mt-2 h-9 px-4 text-xs font-bold w-full"
                   >
-                    Cancel
+                    {staffSearchLoading ? <RefreshCw className="mr-1 size-3 animate-spin" /> : <Search className="mr-1 size-3.5" />}
+                    Search Users
                   </Button>
-                  <Button type="submit" variant="primary" className="text-xs font-bold gap-1.5">
-                    <Sparkles className="size-3.5" />
-                    Create Key
-                  </Button>
-                </DialogFooter>
-              </form>
-            )}
+                </div>
+
+                {staffSearchLoading && (
+                  <div className="mt-3 flex items-center gap-2 rounded-xl bg-cream/40 p-3 text-xs font-bold text-ink/60">
+                    <RefreshCw className="mr-1 size-3 animate-spin" />
+                    Searching registered users…
+                  </div>
+                )}
+
+                {staffSearchSelected && (
+                  <div className="mt-4 rounded-2xl border border-ink/8 bg-white p-4">
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-extrabold text-ink">Selected User</p>
+                          <p className="font-bold text-ink text-sm">{staffSearchSelected.name}</p>
+                          <p className="text-[11px] font-mono text-ink/50">{staffSearchSelected.email}</p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setStaffSearchSelected(null)}
+                          className="h-8 px-3 text-xs text-coral"
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => void handleAssignStaff()}
+                        disabled={staffGeneratingKey}
+                        className="h-10 w-full text-xs font-bold gap-1.5"
+                      >
+                        {staffGeneratingKey ? (
+                          <RefreshCw className="mr-1 size-3 animate-spin" />
+                        ) : (
+                          <UserPlus className="mr-1 size-3.5" />
+                        )}
+                        Assign Staff
+                      </Button>
+                      <p className="text-[11px] font-bold text-ink/50">
+                        This gives them CRM access and sets their role to &quot;staff&quot;. Their
+                        normal login will route to the CRM, not the customer dashboard.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {assignedStaff && (
+                  <div className="mt-4 rounded-2xl border border-ink/8 bg-white p-4">
+                    <div className="text-center space-y-4">
+                      <div className="p-4 rounded-2xl bg-mint/30 border border-mint/40 text-center space-y-2">
+                        <p className="text-xs font-bold text-ink/75">
+                          <strong className="text-ink">{assignedStaff.name}</strong> now has CRM
+                          staff access
+                        </p>
+                        <div className="text-sm font-mono font-black tracking-wide text-ink bg-white py-2 px-3 rounded-xl border border-ink/10 inline-block shadow-xs">
+                          www.raffila.com/staff
+                        </div>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => {
+                            navigator.clipboard.writeText("https://raffila.com/staff");
+                            toast.success("CRM link copied to clipboard");
+                          }}
+                          className="gap-1.5 text-xs font-bold"
+                        >
+                          <Copy className="size-3.5 text-white" />
+                          Copy CRM Link
+                        </Button>
+                      </div>
+
+                      <div className="text-xs text-ink/70 space-y-1 bg-cream/40 p-3 rounded-xl font-bold">
+                        <p className="text-ink font-extrabold">Dispatch Instructions:</p>
+                        <p>
+                          1. Send them the link:{" "}
+                          <code className="font-mono text-coral">www.raffila.com/staff</code>
+                        </p>
+                        <p>
+                          2. They sign in with their existing Raffila email and password for{" "}
+                          <span className="font-mono">{assignedStaff.email}</span>.
+                        </p>
+                        <p>
+                          3. They land straight in the Sales CRM — no key required.
+                        </p>
+                      </div>
+
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setAssignedStaff(null)}>
+                          Done
+                        </Button>
+                      </DialogFooter>
+                    </div>
+                  </div>
+                )}
+
+                {staffSearchResults.length > 0 && !staffSearchSelected && !assignedStaff && (
+                  <div className="mt-4 rounded-2xl border border-ink/8 bg-white">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-cream/40 text-ink/60 font-extrabold border-b border-ink/8">
+                        <tr>
+                          <th className="py-3 px-4">Name</th>
+                          <th className="py-3 px-4">Email</th>
+                          <th className="py-3 px-4 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-ink/6">
+                        {staffSearchResults.map((u) => (
+                          <tr key={u.id} className="hover:bg-cream/20 transition-colors">
+                            <td className="py-3.5 px-4 font-extrabold text-ink">{u.name}</td>
+                            <td className="py-3.5 px-4 font-mono text-ink/50">{u.email}</td>
+                            <td className="py-3.5 px-4 text-right">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setStaffSearchSelected(u)}
+                                className="h-8 px-3 text-xs font-bold text-ink hover:bg-ink/5"
+                              >
+                                Select
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {staffSearchQuery.trim().length > 0 && staffSearchResults.length === 0 && !staffSearchLoading && !staffSearchSelected && (
+                  <div className="mt-3 rounded-xl bg-cream/40 p-3 text-center text-xs font-bold text-ink/60">
+                    No registered users found matching that search.
+                  </div>
+                )}
+              </div>
           </DialogContent>
         </Dialog>
 

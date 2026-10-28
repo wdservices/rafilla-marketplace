@@ -14,7 +14,6 @@ import {
   Bell,
   Menu,
   X,
-  ChevronDown,
   Search,
   ExternalLink,
   LogOut,
@@ -227,22 +226,10 @@ export function AdminShell({ children, title, activeNav }: AdminShellProps) {
           </div>
         </div>
 
-        <div className="px-4 pb-5">
-          <div className="flex items-center gap-3 rounded-2xl bg-white/8 px-3.5 py-3 ring-1 ring-white/10">
-            <Avatar className="size-9 ring-2 ring-coral/60 overflow-hidden">
-              <AvatarImage src={user?.avatarUrl} alt="" />
-              <AvatarFallback className="bg-coral text-ink font-extrabold">
-                {monogram}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-extrabold text-cream leading-tight">{fullName}</p>
-              <Badge className="mt-1 rounded-full bg-coral/90 px-2.5 py-0 text-[9px] font-extrabold uppercase tracking-wider text-ink ring-0">
-                {roleBadge}
-              </Badge>
-            </div>
-            <ChevronDown className="size-4 text-cream/40" />
-          </div>
+        <div className="px-5 pb-5">
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-cream/50">
+            Super admin
+          </p>
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 pb-4" aria-label="Admin navigation">

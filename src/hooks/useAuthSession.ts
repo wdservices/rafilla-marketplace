@@ -66,11 +66,7 @@ export function useAuthGate() {
   useEffect(() => {
     const gate = canAccessRoute({ pathname: location.pathname });
     if (gate.allowed) return;
-    if (gate.search) {
-      void navigate({ to: gate.redirect as any, search: gate.search as any });
-    } else {
-      void navigate({ to: gate.redirect as any });
-    }
+    void navigate({ to: gate.redirect as any });
   }, [user?.id, user?.role, isAuthenticated, location.pathname, navigate]);
 }
 
@@ -136,7 +132,13 @@ export function useAuthActions() {
         }
 
         const roleRedirect =
-          user.role === "admin" ? "/admin" : user.role === "partner" ? "/partner" : "/dashboard";
+          user.role === "admin"
+            ? "/admin"
+            : user.role === "staff"
+              ? "/crm"
+              : user.role === "partner"
+                ? "/partner"
+                : "/dashboard";
         let redirect: string;
         if (input.redirectTo === false) redirect = "";
         else redirect = input.redirectTo ?? roleRedirect;
@@ -258,7 +260,13 @@ export function useAuthActions() {
         setFirebaseSession(user, true);
 
         const roleRedirect =
-          user.role === "admin" ? "/admin" : user.role === "partner" ? "/partner" : "/dashboard";
+          user.role === "admin"
+            ? "/admin"
+            : user.role === "staff"
+              ? "/crm"
+              : user.role === "partner"
+                ? "/partner"
+                : "/dashboard";
         let redirect: string;
         if (options?.redirectTo === false) redirect = "";
         else redirect = options?.redirectTo ?? roleRedirect;
@@ -456,7 +464,7 @@ export function useAuthActions() {
       }
     },
 
-    signOut(target: { to?: "/" | "/auth" } = { to: "/auth" }) {
+    signOut(target: { to?: "/" | "/auth" | "/staff" } = { to: "/auth" }) {
       // Log while the session is still available.
       void logActivity({ eventType: "AUTH_LOGOUT", targetType: "session", summary: "Signed out" });
       logoutFirebase().catch(() => {});

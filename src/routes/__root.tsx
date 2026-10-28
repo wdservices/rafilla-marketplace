@@ -32,7 +32,6 @@ const BUILD_ID = String(
 function NotFoundComponent() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-cream text-ink">
-      <SiteHeader />
       <div className="relative z-10 mx-auto flex min-h-[calc(100vh-120px)] w-full max-w-4xl flex-col items-center justify-center px-4 py-16 text-center sm:px-6 lg:px-8">
         <div
           className="font-display font-extrabold leading-none tracking-tight"
@@ -72,7 +71,6 @@ function NotFoundComponent() {
           </a>
         </div>
       </div>
-      <SiteFooter />
     </div>
   );
 }

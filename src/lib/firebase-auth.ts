@@ -127,7 +127,6 @@ export function checkIsAdmin(
     role === "admin" ||
     role === "superadmin" ||
     role === "administrator" ||
-    role === "staff" ||
     role === "ops"
   ) {
     return true;
@@ -157,11 +156,14 @@ export function firebaseUserToRaffilaUser(fbUser: FirebaseUser, profile?: Record
 
   const email = fbUser.email || (profile?.["email"] as string) || "";
   const isAdmin = checkIsAdmin(profile);
-  const role: "user" | "admin" | "partner" = isAdmin
+  const rawRole = (profile?.["role"] as string)?.toLowerCase();
+  const role: "user" | "admin" | "partner" | "staff" = isAdmin
     ? "admin"
-    : (profile?.["role"] as string)?.toLowerCase() === "partner"
+    : rawRole === "partner"
       ? "partner"
-      : "user";
+      : rawRole === "staff"
+        ? "staff"
+        : "user";
 
   const initials =
     (firstName.slice(0, 1) + lastName.slice(0, 1)).toUpperCase() || (isAdmin ? "AD" : "U");
@@ -181,6 +183,7 @@ export function firebaseUserToRaffilaUser(fbUser: FirebaseUser, profile?: Record
     profileComplete: Boolean(
       isAdmin ||
       role === "partner" ||
+      role === "staff" ||
       (profile?.["phone"] && profile?.["address"] && profile?.["dob"]),
     ),
     partnerId: (profile?.["partnerId"] as string) || undefined,

@@ -4,8 +4,6 @@ import { Home, Ticket, Mail, Search, ArrowRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SiteHeader } from "@/components/raffila/site-header";
-import { SiteFooter } from "@/components/raffila/site-footer";
 
 const canonicalBase = "https://raffila.com";
 const ogImageDefault = "https://raffila.com/og-default.png";
@@ -62,8 +60,6 @@ function NotFoundPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-cream text-ink">
-      <SiteHeader />
-
       <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
         <div className="absolute left-[8%] top-[22%] w-44 rotate-[-6deg] opacity-20 sm:w-56">
           <div className="aspect-[4/5] rounded-[28px] bg-paper p-3 ring-1 ring-ink/10 shadow-sm">
@@ -167,7 +163,6 @@ function NotFoundPage() {
           Or jump right to the live prize list <ArrowRight className="size-3.5" />
         </a>
       </main>
-      <SiteFooter />
     </div>
   );
 }

@@ -17,10 +17,12 @@ import { Route as BecomeAPartnerRouteImport } from './routes/become-a-partner'
 import { Route as CompetitionRulesRouteImport } from './routes/competition-rules'
 import { Route as CompetitionsRouteImport } from './routes/competitions'
 import { Route as ContactRouteImport } from './routes/contact'
+import { Route as CrmRouteImport } from './routes/crm'
 import { Route as FaqRouteImport } from './routes/faq'
 import { Route as HowItWorksRouteImport } from './routes/how-it-works'
 import { Route as PartnerSignupRouteImport } from './routes/partner-signup'
 import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
+import { Route as StaffRouteImport } from './routes/staff'
 import { Route as TermsAndConditionsRouteImport } from './routes/terms-and-conditions'
 import { Route as TrustSafetyRouteImport } from './routes/trust-safety'
 import { Route as WinnersRouteImport } from './routes/winners'
@@ -28,6 +30,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAuditLogsRouteImport } from './routes/admin.audit-logs'
 import { Route as AdminCompetitionsRouteImport } from './routes/admin.competitions'
 import { Route as AdminConfigRouteImport } from './routes/admin.config'
+import { Route as AdminCrmRouteImport } from './routes/admin.crm'
 import { Route as AdminEntriesRouteImport } from './routes/admin.entries'
 import { Route as AdminFraudRouteImport } from './routes/admin.fraud'
 import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
@@ -105,6 +108,11 @@ const ContactRoute = ContactRouteImport.update({
   path: '/contact',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CrmRoute = CrmRouteImport.update({
+  id: '/crm',
+  path: '/crm',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FaqRoute = FaqRouteImport.update({
   id: '/faq',
   path: '/faq',
@@ -123,6 +131,11 @@ const PartnerSignupRoute = PartnerSignupRouteImport.update({
 const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
   id: '/privacy-policy',
   path: '/privacy-policy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StaffRoute = StaffRouteImport.update({
+  id: '/staff',
+  path: '/staff',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TermsAndConditionsRoute = TermsAndConditionsRouteImport.update({
@@ -158,6 +171,11 @@ const AdminCompetitionsRoute = AdminCompetitionsRouteImport.update({
 const AdminConfigRoute = AdminConfigRouteImport.update({
   id: '/admin/config',
   path: '/admin/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminCrmRoute = AdminCrmRouteImport.update({
+  id: '/admin/crm',
+  path: '/admin/crm',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminEntriesRoute = AdminEntriesRouteImport.update({
@@ -352,16 +370,19 @@ export interface FileRoutesByFullPath {
   '/competition-rules': typeof CompetitionRulesRoute
   '/competitions': typeof CompetitionsRouteWithChildren
   '/contact': typeof ContactRoute
+  '/crm': typeof CrmRoute
   '/faq': typeof FaqRoute
   '/how-it-works': typeof HowItWorksRoute
   '/partner-signup': typeof PartnerSignupRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/staff': typeof StaffRoute
   '/terms-and-conditions': typeof TermsAndConditionsRoute
   '/trust-safety': typeof TrustSafetyRoute
   '/winners': typeof WinnersRoute
   '/admin/audit-logs': typeof AdminAuditLogsRoute
   '/admin/competitions': typeof AdminCompetitionsRoute
   '/admin/config': typeof AdminConfigRoute
+  '/admin/crm': typeof AdminCrmRoute
   '/admin/entries': typeof AdminEntriesRoute
   '/admin/fraud': typeof AdminFraudRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -408,16 +429,19 @@ export interface FileRoutesByTo {
   '/become-a-partner': typeof BecomeAPartnerRoute
   '/competition-rules': typeof CompetitionRulesRoute
   '/contact': typeof ContactRoute
+  '/crm': typeof CrmRoute
   '/faq': typeof FaqRoute
   '/how-it-works': typeof HowItWorksRoute
   '/partner-signup': typeof PartnerSignupRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/staff': typeof StaffRoute
   '/terms-and-conditions': typeof TermsAndConditionsRoute
   '/trust-safety': typeof TrustSafetyRoute
   '/winners': typeof WinnersRoute
   '/admin/audit-logs': typeof AdminAuditLogsRoute
   '/admin/competitions': typeof AdminCompetitionsRoute
   '/admin/config': typeof AdminConfigRoute
+  '/admin/crm': typeof AdminCrmRoute
   '/admin/entries': typeof AdminEntriesRoute
   '/admin/fraud': typeof AdminFraudRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -466,16 +490,19 @@ export interface FileRoutesById {
   '/competition-rules': typeof CompetitionRulesRoute
   '/competitions': typeof CompetitionsRouteWithChildren
   '/contact': typeof ContactRoute
+  '/crm': typeof CrmRoute
   '/faq': typeof FaqRoute
   '/how-it-works': typeof HowItWorksRoute
   '/partner-signup': typeof PartnerSignupRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/staff': typeof StaffRoute
   '/terms-and-conditions': typeof TermsAndConditionsRoute
   '/trust-safety': typeof TrustSafetyRoute
   '/winners': typeof WinnersRoute
   '/admin/audit-logs': typeof AdminAuditLogsRoute
   '/admin/competitions': typeof AdminCompetitionsRoute
   '/admin/config': typeof AdminConfigRoute
+  '/admin/crm': typeof AdminCrmRoute
   '/admin/entries': typeof AdminEntriesRoute
   '/admin/fraud': typeof AdminFraudRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -525,16 +552,19 @@ export interface FileRouteTypes {
     | '/competition-rules'
     | '/competitions'
     | '/contact'
+    | '/crm'
     | '/faq'
     | '/how-it-works'
     | '/partner-signup'
     | '/privacy-policy'
+    | '/staff'
     | '/terms-and-conditions'
     | '/trust-safety'
     | '/winners'
     | '/admin/audit-logs'
     | '/admin/competitions'
     | '/admin/config'
+    | '/admin/crm'
     | '/admin/entries'
     | '/admin/fraud'
     | '/admin/notifications'
@@ -581,16 +611,19 @@ export interface FileRouteTypes {
     | '/become-a-partner'
     | '/competition-rules'
     | '/contact'
+    | '/crm'
     | '/faq'
     | '/how-it-works'
     | '/partner-signup'
     | '/privacy-policy'
+    | '/staff'
     | '/terms-and-conditions'
     | '/trust-safety'
     | '/winners'
     | '/admin/audit-logs'
     | '/admin/competitions'
     | '/admin/config'
+    | '/admin/crm'
     | '/admin/entries'
     | '/admin/fraud'
     | '/admin/notifications'
@@ -638,16 +671,19 @@ export interface FileRouteTypes {
     | '/competition-rules'
     | '/competitions'
     | '/contact'
+    | '/crm'
     | '/faq'
     | '/how-it-works'
     | '/partner-signup'
     | '/privacy-policy'
+    | '/staff'
     | '/terms-and-conditions'
     | '/trust-safety'
     | '/winners'
     | '/admin/audit-logs'
     | '/admin/competitions'
     | '/admin/config'
+    | '/admin/crm'
     | '/admin/entries'
     | '/admin/fraud'
     | '/admin/notifications'
@@ -696,16 +732,19 @@ export interface RootRouteChildren {
   CompetitionRulesRoute: typeof CompetitionRulesRoute
   CompetitionsRoute: typeof CompetitionsRouteWithChildren
   ContactRoute: typeof ContactRoute
+  CrmRoute: typeof CrmRoute
   FaqRoute: typeof FaqRoute
   HowItWorksRoute: typeof HowItWorksRoute
   PartnerSignupRoute: typeof PartnerSignupRoute
   PrivacyPolicyRoute: typeof PrivacyPolicyRoute
+  StaffRoute: typeof StaffRoute
   TermsAndConditionsRoute: typeof TermsAndConditionsRoute
   TrustSafetyRoute: typeof TrustSafetyRoute
   WinnersRoute: typeof WinnersRoute
   AdminAuditLogsRoute: typeof AdminAuditLogsRoute
   AdminCompetitionsRoute: typeof AdminCompetitionsRoute
   AdminConfigRoute: typeof AdminConfigRoute
+  AdminCrmRoute: typeof AdminCrmRoute
   AdminEntriesRoute: typeof AdminEntriesRoute
   AdminFraudRoute: typeof AdminFraudRoute
   AdminNotificationsRoute: typeof AdminNotificationsRoute
@@ -799,6 +838,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ContactRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/crm': {
+      id: '/crm'
+      path: '/crm'
+      fullPath: '/crm'
+      preLoaderRoute: typeof CrmRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/faq': {
       id: '/faq'
       path: '/faq'
@@ -825,6 +871,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy-policy'
       fullPath: '/privacy-policy'
       preLoaderRoute: typeof PrivacyPolicyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/staff': {
+      id: '/staff'
+      path: '/staff'
+      fullPath: '/staff'
+      preLoaderRoute: typeof StaffRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/terms-and-conditions': {
@@ -874,6 +927,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/config'
       fullPath: '/admin/config'
       preLoaderRoute: typeof AdminConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/crm': {
+      id: '/admin/crm'
+      path: '/admin/crm'
+      fullPath: '/admin/crm'
+      preLoaderRoute: typeof AdminCrmRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/entries': {
@@ -1176,16 +1236,19 @@ const rootRouteChildren: RootRouteChildren = {
   CompetitionRulesRoute: CompetitionRulesRoute,
   CompetitionsRoute: CompetitionsRouteWithChildren,
   ContactRoute: ContactRoute,
+  CrmRoute: CrmRoute,
   FaqRoute: FaqRoute,
   HowItWorksRoute: HowItWorksRoute,
   PartnerSignupRoute: PartnerSignupRoute,
   PrivacyPolicyRoute: PrivacyPolicyRoute,
+  StaffRoute: StaffRoute,
   TermsAndConditionsRoute: TermsAndConditionsRoute,
   TrustSafetyRoute: TrustSafetyRoute,
   WinnersRoute: WinnersRoute,
   AdminAuditLogsRoute: AdminAuditLogsRoute,
   AdminCompetitionsRoute: AdminCompetitionsRoute,
   AdminConfigRoute: AdminConfigRoute,
+  AdminCrmRoute: AdminCrmRoute,
   AdminEntriesRoute: AdminEntriesRoute,
   AdminFraudRoute: AdminFraudRoute,
   AdminNotificationsRoute: AdminNotificationsRoute,

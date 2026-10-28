@@ -9,6 +9,10 @@ import {
   onSnapshot,
   doc,
   updateDoc,
+  writeBatch,
+  where,
+  getDoc,
+  deleteDoc,
 } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -20,11 +24,19 @@ export interface StaffMember {
   role: string;
   status: "active" | "revoked";
   createdAt: string;
-  lastLoginAt?: string;
-  callsCount?: number;
+  lastLoginAt?: string | undefined;
+  callsCount?: number | undefined;
 }
 
-export type LeadStatus = "new" | "contacted" | "qualified" | "lost" | "hot" | "warm" | "converted";
+export type LeadStatus =
+  | "new"
+  | "contacted"
+  | "qualified"
+  | "lost"
+  | "hot"
+  | "warm"
+  | "converted"
+  | "unresponsive";
 
 export interface CRMLead {
   id: string;
@@ -35,8 +47,13 @@ export interface CRMLead {
   status: LeadStatus;
   ticketsBought: number;
   totalSpent: number;
-  lastContacted?: string;
-  assignedTo?: string;
+  lastContacted?: string | undefined;
+  assignedTo?: string | undefined;
+  joinedAt?: string | undefined;
+  source?: string | undefined;
+  notes?: string | undefined;
+  /** ISO timestamp of the most recent confirmed ticket purchase. */
+  lastPurchaseAt?: string | undefined;
 }
 
 export type CallType =
@@ -53,16 +70,16 @@ export interface CRMCallLog {
   id: string;
   staffKey: string;
   staffName: string;
-  leadId?: string;
+  leadId?: string | undefined;
   clientName: string;
   clientPhone: string;
-  clientEmail?: string;
-  callDuration?: string;
-  durationMinutes?: number;
+  clientEmail?: string | undefined;
+  callDuration?: string | undefined;
+  durationMinutes?: number | undefined;
   callType: CallType;
   outcome: CallOutcome;
   notes: string;
-  followUpDate?: string;
+  followUpDate?: string | undefined;
   createdAt: string;
 }
 
@@ -72,13 +89,13 @@ export interface CRMActivity {
   leadId: string;
   clientName: string;
   clientPhone: string;
-  clientEmail?: string;
+  clientEmail?: string | undefined;
   callDuration: string;
   durationMinutes: number;
   outcome: CallOutcome;
   notes: string;
   callType: CallType;
-  followUpDate?: string;
+  followUpDate?: string | undefined;
   staffKey: string;
   staffName: string;
   createdAt: string;
@@ -160,18 +177,322 @@ export function deleteStaffKey(id: string): void {
   }
 }
 
-export function validateStaffLogin(key: string): {
+/**
+ * Firestore-backed: Assign a staff access key to an existing registered user.
+ * Creates a staffKeys doc, sets the user's role to "staff", stores the key,
+ * and mirrors into localStorage for immediate validation by the staff portal.
+ */
+export async function assignStaffToUser(
+  userId: string,
+  email: string,
+  name: string,
+): Promise<{ key: string; error?: string }> {
+  const random4 = () => Math.floor(1000 + Math.random() * 9000);
+  const key = `RAF-STAFF-${random4()}-${random4()}`;
+
+  try {
+    // Retire any earlier key for this user so only one is ever active.
+    const existing = await getDocs(
+      query(collection(db, "staffKeys"), where("userId", "==", userId)),
+    );
+
+    const batch = writeBatch(db);
+
+    for (const d of existing.docs) {
+      batch.update(d.ref, { status: "revoked", updatedAt: serverTimestamp() });
+    }
+
+    const keyRef = doc(collection(db, "staffKeys"));
+    batch.set(keyRef, {
+      key,
+      userId,
+      email: email.toLowerCase().trim(),
+      name: name.trim(),
+      status: "active",
+      createdAt: serverTimestamp(),
+      lastUsedAt: null,
+    });
+
+    batch.update(doc(db, "users", userId), {
+      role: "staff",
+      staffKey: key,
+      staffKeyStatus: "active",
+      staffKeyGeneratedAt: new Date().toISOString(),
+      updatedAt: serverTimestamp(),
+    });
+
+    await batch.commit();
+
+    // Mirror into localStorage so the staff portal can validate immediately
+    const newStaff: StaffMember = {
+      id: userId,
+      key,
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      role: "Sales Representative",
+      status: "active",
+      createdAt: new Date().toISOString(),
+      callsCount: 0,
+    };
+    const list = getStaffList();
+    const filtered = list.filter((s) => s.id !== userId);
+    filtered.unshift(newStaff);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEYS.STAFF, JSON.stringify(filtered));
+    }
+
+    return { key };
+  } catch (err: any) {
+    return { key: "", error: err?.message || "Failed to assign staff access" };
+  }
+}
+
+/**
+ * Firestore-backed: Revoke a staff access key (make it null and void).
+ * Revokes the Firestore staffKeys doc, reverts the user's role to "user",
+ * and updates localStorage.
+ */
+export async function revokeStaffAccess(key: string): Promise<boolean> {
+  // Revoke in localStorage (existing helper)
+  revokeStaffKey(key);
+
+  try {
+    const q = query(collection(db, "staffKeys"), where("key", "==", key));
+    const snap = await getDocs(q);
+    const batch = writeBatch(db);
+
+    for (const d of snap.docs) {
+      batch.update(d.ref, { status: "revoked", updatedAt: serverTimestamp() });
+      const data = d.data() as Record<string, unknown>;
+      const userId = data["userId"] as string;
+      if (userId) {
+        batch.update(doc(db, "users", userId), {
+          role: "user",
+          staffKeyStatus: "revoked",
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+
+    await batch.commit();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Firestore-backed: Re-activate a previously revoked staff key and restore
+ * the user's CRM role so their normal login routes to /crm again.
+ */
+export async function reactivateStaffAccess(key: string): Promise<boolean> {
+  activateStaffKey(key);
+
+  try {
+    const q = query(collection(db, "staffKeys"), where("key", "==", key));
+    const snap = await getDocs(q);
+    if (snap.empty) return false;
+
+    const batch = writeBatch(db);
+    for (const d of snap.docs) {
+      batch.update(d.ref, { status: "active", updatedAt: serverTimestamp() });
+      const data = d.data() as Record<string, unknown>;
+      const userId = data["userId"] as string;
+      if (userId) {
+        batch.update(doc(db, "users", userId), {
+          role: "staff",
+          staffKeyStatus: "active",
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+    await batch.commit();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Fetch the signed-in staff member's own assignment. Requires an
+ * authenticated Firebase session — rules allow a user to read their own key.
+ */
+export async function fetchMyStaffAssignment(userId: string): Promise<StaffMember | null> {
+  try {
+    const snap = await getDocs(
+      query(collection(db, "staffKeys"), where("userId", "==", userId)),
+    );
+    if (snap.empty) return null;
+
+    const docs = snap.docs
+      .map((d) => ({ id: d.id, data: d.data() as Record<string, unknown> }))
+      .sort((a, b) => {
+        const aActive = a.data["status"] === "active" ? 1 : 0;
+        const bActive = b.data["status"] === "active" ? 1 : 0;
+        return bActive - aActive;
+      });
+    const { data } = docs[0] ?? {};
+    if (!data) return null;
+
+    // Stamp activity for the admin's "Last Active" column. Rules allow the
+    // owner to change only lastUsedAt on their own assignment.
+    const activeDoc = snap.docs.find(
+      (d) => (d.data() as Record<string, unknown>)["status"] === "active",
+    );
+    if (activeDoc) {
+      void updateDoc(doc(db, "staffKeys", activeDoc.id), {
+        lastUsedAt: serverTimestamp(),
+      }).catch(() => {});
+    }
+
+    return {
+      id: userId,
+      key: (data["key"] as string) || "",
+      name: (data["name"] as string) || "",
+      email: (data["email"] as string) || "",
+      role: "Sales Representative",
+      status: data["status"] === "revoked" ? "revoked" : "active",
+      createdAt:
+        typeof (data["createdAt"] as any)?.toDate === "function"
+          ? (data["createdAt"] as any).toDate().toISOString()
+          : String(data["createdAt"] ?? ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch all staff key assignments from Firestore for the admin UI.
+ */
+export async function fetchStaffAssignments(): Promise<Array<{
+  id: string;
+  key: string;
+  userId: string;
+  email: string;
+  name: string;
+  status: "active" | "revoked";
+  createdAt: string;
+  lastUsedAt: string;
+}>> {
+  try {
+    const snap = await getDocs(query(collection(db, "staffKeys")));
+    return snap.docs.map((d) => {
+      const data = d.data() as Record<string, unknown>;
+      return {
+        id: d.id,
+        key: (data["key"] as string) || "",
+        userId: (data["userId"] as string) || "",
+        email: (data["email"] as string) || "",
+        name: (data["name"] as string) || "",
+        status: (data["status"] as string) === "revoked" ? "revoked" : "active",
+        createdAt:
+          typeof (data["createdAt"] as any)?.toDate === "function"
+            ? (data["createdAt"] as any).toDate().toISOString()
+            : String(data["createdAt"] ?? ""),
+        lastUsedAt:
+          typeof (data["lastUsedAt"] as any)?.toDate === "function"
+            ? (data["lastUsedAt"] as any).toDate().toISOString()
+            : "",
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch a single user profile from Firestore by ID.
+ */
+export async function fetchUserProfileById(userId: string): Promise<{
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+} | null> {
+  try {
+    const snap = await getDoc(doc(db, "users", userId));
+    if (!snap.exists()) return null;
+    const data = snap.data() as Record<string, unknown>;
+    return {
+      id: snap.id,
+      email: (data["email"] as string) || "",
+      name:
+        ((data["displayName"] as string) ||
+          [data["firstName"], data["lastName"]].filter(Boolean).join(" ") ||
+          (data["handle"] as string) ||
+          "") || snap.id,
+      role: (data["role"] as string) || "user",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function validateStaffLogin(input: {
+  email: string;
+  key: string;
+}): Promise<{
   success: boolean;
   staff?: StaffMember;
   error?: string;
-} {
-  const cleanKey = key.trim().toUpperCase();
+}> {
+  const cleanKey = input.key.trim().toUpperCase();
+  const cleanEmail = input.email.trim().toLowerCase();
+
+  // Check Firestore staffKeys collection (source of truth)
+  try {
+    const q = query(
+      collection(db, "staffKeys"),
+      where("key", "==", cleanKey),
+      where("email", "==", cleanEmail),
+      where("status", "==", "active"),
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const data = (snap.docs[0]?.data() ?? {}) as Record<string, unknown>;
+      const staff: StaffMember = {
+        id: data["userId"] as string,
+        key: cleanKey,
+        name: (data["name"] as string) || "",
+        email: cleanEmail,
+        role: "Sales Representative",
+        status: "active",
+        createdAt:
+          typeof (data["createdAt"] as any)?.toDate === "function"
+            ? (data["createdAt"] as any).toDate().toISOString()
+            : String(data["createdAt"] ?? new Date().toISOString()),
+        lastLoginAt: new Date().toISOString(),
+        callsCount: 0,
+      };
+
+      // Mirror into localStorage for subsequent offline validation
+      const list = getStaffList();
+      const filtered = list.filter((s) => s.id !== staff.id);
+      filtered.unshift(staff);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(STORAGE_KEYS.STAFF, JSON.stringify(filtered));
+        localStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(staff));
+      }
+
+      // Update lastUsedAt in Firestore
+      await updateDoc(doc(db, "staffKeys", snap.docs[0]!.id), {
+        lastUsedAt: serverTimestamp(),
+      });
+
+      return { success: true, staff };
+    }
+  } catch {
+    // Fall through to localStorage check below
+  }
+
+  // Fallback: check localStorage
   const list = getStaffList();
-  const staff = list.find((s) => s.key === cleanKey);
+  const staff = list.find((s) => s.key === cleanKey && s.email === cleanEmail);
   if (!staff) {
     return {
       success: false,
-      error: "Invalid Sales Access Key. Ask your administrator for an active key.",
+      error: "Invalid email or access key. Please check with your Operations Admin.",
     };
   }
   if (staff.status === "revoked") {
@@ -213,54 +534,101 @@ export function clearStaffSession(): void {
 }
 
 /**
- * Fetches real registered users from Firestore and maps them into CRM Leads.
+ * Maps a Firestore `users/{uid}` document into a CRM lead. Purchase numbers
+ * come from the real `users/{uid}/entries` ledger (see hydrateLeadMetrics) —
+ * the user document itself does not carry lifetime spend.
+ */
+function mapUserToLead(
+  id: string,
+  data: Record<string, unknown>,
+): { lead: CRMLead; explicitStatus: boolean } {
+  const name =
+    (data["displayName"] as string) ||
+    [data["firstName"], data["lastName"]].filter(Boolean).join(" ") ||
+    (data["handle"] as string) ||
+    (data["email"] as string) ||
+    "Registered Entrant";
+  const phone = (data["phone"] as string) || (data["phoneNumber"] as string) || "No phone added";
+  const email = (data["email"] as string) || "";
+  const location =
+    (data["location"] as string) ||
+    (data["city"] as string) ||
+    (data["state"] as string) ||
+    "Nigeria";
+
+  // Fallbacks only matter until the entries ledger is read.
+  const fallbackTickets =
+    Number(data["totalEntries"] ?? data["entriesCount"] ?? data["ticketsCount"] ?? 0) || 0;
+  const fallbackSpent =
+    Number(
+      data["totalSpent"] ?? (data["spentKobo"] ? Math.round(Number(data["spentKobo"]) / 100) : 0),
+    ) || 0;
+
+  const rawStatus = typeof data["leadStatus"] === "string" ? (data["leadStatus"] as string) : "";
+  const explicitStatus = rawStatus.length > 0;
+  const status: CRMLead["status"] = explicitStatus
+    ? (rawStatus as CRMLead["status"])
+    : fallbackTickets > 5
+      ? "hot"
+      : fallbackTickets > 0
+        ? "converted"
+        : "warm";
+
+  return {
+    explicitStatus,
+    lead: {
+      id,
+      name,
+      phone,
+      email,
+      location,
+      status,
+      ticketsBought: fallbackTickets,
+      totalSpent: fallbackSpent,
+      lastContacted: (data["lastContacted"] as string) || undefined,
+      assignedTo: (data["assignedTo"] as string) || undefined,
+      joinedAt: toIso(data["createdAt"]) || undefined,
+      source: (data["leadSource"] as string) || (data["referralCode"] ? "referral" : "organic"),
+    },
+  };
+}
+
+/** Applies the cached purchase ledger on top of a mapped user lead. */
+function withPurchaseMetrics(lead: CRMLead, explicitStatus: boolean): CRMLead {
+  const metrics = leadMetricsCache.get(lead.id);
+  if (!metrics) return lead;
+  const status: CRMLead["status"] = explicitStatus
+    ? lead.status
+    : metrics.tickets > 5
+      ? "hot"
+      : metrics.tickets > 0
+        ? "converted"
+        : "warm";
+  return {
+    ...lead,
+    ticketsBought: metrics.tickets,
+    totalSpent: metrics.spent,
+    status,
+    ...(metrics.lastPurchaseAt ? { lastPurchaseAt: metrics.lastPurchaseAt } : {}),
+  };
+}
+
+/**
+ * Fetches real registered users from Firestore and maps them into CRM Leads,
+ * enriched with their real ticket/spend history from the entries ledger.
  */
 export async function fetchRealCRMLeads(): Promise<CRMLead[]> {
   try {
-    const snap = await getDocs(query(collection(db, "users"), limit(200)));
-    const leads: CRMLead[] = [];
-    snap.docs.forEach((d) => {
-      const data = d.data() as Record<string, unknown>;
-      const name =
-        (data["displayName"] as string) ||
-        [data["firstName"], data["lastName"]].filter(Boolean).join(" ") ||
-        (data["handle"] as string) ||
-        (data["email"] as string) ||
-        "Registered Entrant";
-      const phone =
-        (data["phone"] as string) || (data["phoneNumber"] as string) || "No phone added";
-      const email = (data["email"] as string) || "";
-      const location =
-        (data["location"] as string) ||
-        (data["city"] as string) ||
-        (data["state"] as string) ||
-        "Nigeria";
-      const tickets =
-        Number(data["totalEntries"] ?? data["entriesCount"] ?? data["ticketsCount"] ?? 0) || 0;
-      const spent =
-        Number(
-          data["totalSpent"] ??
-            (data["spentKobo"] ? Math.round(Number(data["spentKobo"]) / 100) : 0),
-        ) || 0;
-      const status: CRMLead["status"] = tickets > 5 ? "hot" : tickets > 0 ? "converted" : "warm";
+    const snap = await getDocs(query(collection(db, "users"), limit(300)));
+    const rows = snap.docs
+      .filter((d) => {
+        const role = (d.data() as Record<string, unknown>)["role"];
+        return role !== "admin" && role !== "staff";
+      })
+      .map((d) => mapUserToLead(d.id, d.data() as Record<string, unknown>));
 
-      leads.push({
-        id: d.id,
-        name,
-        phone,
-        email,
-        location,
-        status,
-        ticketsBought: tickets,
-        totalSpent: spent,
-        lastContacted: (data["lastContacted"] as string) || undefined,
-        assignedTo: (data["assignedTo"] as string) || undefined,
-      });
-    });
-
-    // Also append any custom leads added locally
-    const custom = getCustomLeads();
-    return [...leads, ...custom];
+    await hydrateLeadMetrics(rows.map((r) => r.lead.id));
+    return [...rows.map((r) => withPurchaseMetrics(r.lead, r.explicitStatus)), ...getCustomLeads()];
   } catch (err) {
     console.error("Could not fetch real users for CRM:", err);
     return getCustomLeads();
@@ -507,60 +875,38 @@ export function subscribeCRMActivities(
 
 /**
  * Real-time listener for leads directly querying 'users' in Firestore.
+ * Ticket counts and lifetime spend are hydrated from the real per-user
+ * `entries` ledger, so the numbers match what customers actually bought.
  */
 export function subscribeRealtimeCRMLeads(
   callback: (leads: CRMLead[]) => void,
   onError?: (err: Error) => void,
 ): () => void {
+  let disposed = false;
+  let rows: Array<{ lead: CRMLead; explicitStatus: boolean }> = [];
+
+  const paint = () => {
+    if (disposed) return;
+    callback([
+      ...rows.map((r) => withPurchaseMetrics(r.lead, r.explicitStatus)),
+      ...getCustomLeads(),
+    ]);
+  };
+
   try {
     const q = query(collection(db, "users"), limit(300));
     const unsubscribe = onSnapshot(
       q,
       (snap) => {
-        const leads: CRMLead[] = [];
-        snap.docs.forEach((d) => {
-          const data = d.data() as Record<string, unknown>;
-          const name =
-            (data["displayName"] as string) ||
-            [data["firstName"], data["lastName"]].filter(Boolean).join(" ") ||
-            (data["handle"] as string) ||
-            (data["email"] as string) ||
-            "Registered Entrant";
-          const phone =
-            (data["phone"] as string) || (data["phoneNumber"] as string) || "No phone added";
-          const email = (data["email"] as string) || "";
-          const location =
-            (data["location"] as string) ||
-            (data["city"] as string) ||
-            (data["state"] as string) ||
-            "Nigeria";
-          const tickets =
-            Number(data["totalEntries"] ?? data["entriesCount"] ?? data["ticketsCount"] ?? 0) || 0;
-          const spent =
-            Number(
-              data["totalSpent"] ??
-                (data["spentKobo"] ? Math.round(Number(data["spentKobo"]) / 100) : 0),
-            ) || 0;
-          const status: CRMLead["status"] =
-            (data["leadStatus"] as CRMLead["status"]) ||
-            (tickets > 5 ? "hot" : tickets > 0 ? "converted" : "warm");
+        rows = snap.docs
+          .filter((d) => {
+            const role = (d.data() as Record<string, unknown>)["role"];
+            return role !== "admin" && role !== "staff";
+          })
+          .map((d) => mapUserToLead(d.id, d.data() as Record<string, unknown>));
 
-          leads.push({
-            id: d.id,
-            name,
-            phone,
-            email,
-            location,
-            status,
-            ticketsBought: tickets,
-            totalSpent: spent,
-            lastContacted: (data["lastContacted"] as string) || undefined,
-            assignedTo: (data["assignedTo"] as string) || undefined,
-          });
-        });
-
-        const custom = getCustomLeads();
-        callback([...leads, ...custom]);
+        paint();
+        void hydrateLeadMetrics(rows.map((r) => r.lead.id)).then(paint);
       },
       (err) => {
         console.warn("subscribeRealtimeCRMLeads error:", err);
@@ -568,7 +914,10 @@ export function subscribeRealtimeCRMLeads(
         fetchRealCRMLeads().then(callback);
       },
     );
-    return unsubscribe;
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
   } catch (err) {
     console.error("subscribeRealtimeCRMLeads init error:", err);
     fetchRealCRMLeads().then(callback);
@@ -600,7 +949,7 @@ export async function updateCRMLeadStatus(
     const idx = custom.findIndex((c) => c.id === leadId);
     if (idx !== -1) {
       custom[idx] = {
-        ...custom[idx],
+        ...custom[idx]!,
         status: newStatus,
         lastContacted: updatedAt,
       };
@@ -616,6 +965,20 @@ export async function updateCRMLeadStatus(
       success: false,
       error: err instanceof Error ? err.message : "Failed to update status in Firestore",
     };
+  }
+}
+
+/**
+ * Assigns a lead to a staff member (writes the single CRM-owned field on the
+ * user document — allowed by the `crmLeadFieldsOnly` rule).
+ */
+export async function assignCRMLead(leadId: string, assignee: string): Promise<boolean> {
+  if (!leadId || leadId.startsWith("lead-")) return false;
+  try {
+    await updateDoc(doc(db, "users", leadId), { assignedTo: assignee });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -679,3 +1042,932 @@ export function exportLeadsToCSV(
 
   return { count: leadsToExport.length };
 }
+
+/* ==========================================================================
+ * Feature layer: deals, tasks, notes, templates, lead scoring, reporting
+ * ========================================================================== */
+
+export type DealStage = "new" | "qualified" | "proposal" | "negotiation" | "won" | "lost";
+
+export const DEAL_STAGES: Array<{
+  id: DealStage;
+  label: string;
+  hint: string;
+  accent: string;
+  dot: string;
+}> = [
+  {
+    id: "new",
+    label: "New",
+    hint: "Fresh opportunity",
+    accent: "border-t-sky-400",
+    dot: "bg-sky-500",
+  },
+  {
+    id: "qualified",
+    label: "Qualified",
+    hint: "Budget + intent confirmed",
+    accent: "border-t-indigo-400",
+    dot: "bg-indigo-500",
+  },
+  {
+    id: "proposal",
+    label: "Proposal",
+    hint: "Pricing sent",
+    accent: "border-t-violet-400",
+    dot: "bg-violet-500",
+  },
+  {
+    id: "negotiation",
+    label: "Negotiation",
+    hint: "Closing terms",
+    accent: "border-t-amber-400",
+    dot: "bg-amber-500",
+  },
+  {
+    id: "won",
+    label: "Won",
+    hint: "Paid + ticketed",
+    accent: "border-t-emerald-500",
+    dot: "bg-emerald-600",
+  },
+  {
+    id: "lost",
+    label: "Lost",
+    hint: "Closed out",
+    accent: "border-t-rose-400",
+    dot: "bg-rose-500",
+  },
+];
+
+export const STAGE_PROBABILITY: Record<DealStage, number> = {
+  new: 10,
+  qualified: 30,
+  proposal: 50,
+  negotiation: 75,
+  won: 100,
+  lost: 0,
+};
+
+export interface CRMDeal {
+  id: string;
+  title: string;
+  leadId?: string | undefined;
+  contactName: string;
+  contactEmail?: string | undefined;
+  contactPhone?: string | undefined;
+  value: number;
+  stage: DealStage;
+  probability: number;
+  expectedCloseDate?: string | undefined;
+  ownerName?: string | undefined;
+  ownerId?: string | undefined;
+  notes?: string | undefined;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TaskPriority = "low" | "medium" | "high";
+export type TaskStatus = "open" | "done";
+
+export interface CRMTask {
+  id: string;
+  title: string;
+  description?: string | undefined;
+  leadId?: string | undefined;
+  contactName?: string | undefined;
+  dueDate: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  ownerName?: string | undefined;
+  ownerId?: string | undefined;
+  createdAt: string;
+  completedAt?: string | undefined;
+}
+
+export interface CRMNote {
+  id: string;
+  leadId: string;
+  contactName: string;
+  body: string;
+  authorName: string;
+  authorId: string;
+  createdAt: string;
+  pinned?: boolean | undefined;
+}
+
+export type TemplateChannel = "email" | "whatsapp" | "call_script";
+
+export interface CRMTemplate {
+  id: string;
+  name: string;
+  channel: TemplateChannel;
+  subject?: string | undefined;
+  body: string;
+  createdBy?: string | undefined;
+  createdAt: string;
+  updatedAt?: string | undefined;
+}
+
+/** Firestore timestamps, ISO strings and epoch numbers all normalise here. */
+function toIso(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "object" && value !== null && typeof (value as any).toDate === "function") {
+    try {
+      return (value as any).toDate().toISOString();
+    } catch {
+      return "";
+    }
+  }
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return new Date(value).toISOString();
+  return "";
+}
+
+function str(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function num(value: unknown, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/* ---------------------- Real purchase ledger ------------------------------ */
+
+interface LeadMetrics {
+  tickets: number;
+  spent: number;
+  lastPurchaseAt: string;
+}
+
+const leadMetricsCache = new Map<string, LeadMetrics>();
+let leadMetricsFetchedAt = 0;
+let leadMetricsInFlight: Promise<void> | null = null;
+const LEAD_METRICS_TTL_MS = 5 * 60 * 1000;
+const LEAD_METRICS_MAX_USERS = 200;
+const LEAD_METRICS_CONCURRENCY = 10;
+
+const IGNORED_ENTRY_STATUSES = new Set(["REFUNDED", "REFUND_PENDING", "CANCELLED", "FAILED"]);
+
+async function loadLeadMetrics(userIds: string[]): Promise<Map<string, LeadMetrics>> {
+  const out = new Map<string, LeadMetrics>();
+
+  for (let i = 0; i < userIds.length; i += LEAD_METRICS_CONCURRENCY) {
+    const slice = userIds.slice(i, i + LEAD_METRICS_CONCURRENCY);
+    const results = await Promise.all(
+      slice.map(async (uid) => {
+        try {
+          const snap = await getDocs(query(collection(db, "users", uid, "entries"), limit(400)));
+          let tickets = 0;
+          let spentKobo = 0;
+          let lastPurchaseAt = "";
+          snap.docs.forEach((entry) => {
+            const v = entry.data() as Record<string, unknown>;
+            const status = str(v["status"], "CONFIRMED").toUpperCase();
+            if (IGNORED_ENTRY_STATUSES.has(status)) return;
+            tickets += num(v["quantity"]);
+            spentKobo += num(v["amountKobo"]);
+            const at = toIso(v["createdAt"]);
+            if (at && at > lastPurchaseAt) lastPurchaseAt = at;
+          });
+          return {
+            uid,
+            metrics: {
+              tickets,
+              spent: Math.round(spentKobo / 100),
+              lastPurchaseAt,
+            } as LeadMetrics,
+          };
+        } catch {
+          // A single unreadable ledger must not blank the whole directory.
+          return { uid, metrics: null };
+        }
+      }),
+    );
+    results.forEach((r) => {
+      if (r.metrics) out.set(r.uid, r.metrics);
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Refreshes the per-user purchase cache (5-minute TTL) from the real
+ * `users/{uid}/entries` subcollection. Bounded fan-out keeps the number of
+ * open reads sane on large user bases.
+ */
+async function hydrateLeadMetrics(userIds: string[], force = false): Promise<void> {
+  const ids = userIds.filter((id) => id && !id.startsWith("lead-")).slice(0, LEAD_METRICS_MAX_USERS);
+  if (!ids.length) return;
+
+  const stale = Date.now() - leadMetricsFetchedAt > LEAD_METRICS_TTL_MS;
+  if (!force && !stale && ids.every((id) => leadMetricsCache.has(id))) return;
+  if (leadMetricsInFlight) {
+    await leadMetricsInFlight;
+    return;
+  }
+
+  leadMetricsInFlight = loadLeadMetrics(stale || force ? ids : ids.filter((id) => !leadMetricsCache.has(id)))
+    .then((found) => {
+      found.forEach((metrics, uid) => leadMetricsCache.set(uid, metrics));
+      leadMetricsFetchedAt = Date.now();
+    })
+    .catch((err) => {
+      console.warn("CRM purchase ledger read failed:", err);
+    });
+
+  try {
+    await leadMetricsInFlight;
+  } finally {
+    leadMetricsInFlight = null;
+  }
+}
+
+/**
+ * Clears the cached purchase ledger so the next leads read re-queries the
+ * real `users/{uid}/entries` documents.
+ */
+export function invalidateLeadMetrics(): void {
+  leadMetricsCache.clear();
+  leadMetricsFetchedAt = 0;
+}
+
+/* ------------------------ Live competitions ------------------------------- */
+
+export interface CRMCompetition {
+  id: string;
+  slug: string;
+  title: string;
+  category: string;
+  /** Ticket price in kobo (same unit the storefront uses). */
+  entryPriceKobo: number;
+  prizeValueKobo: number;
+  closesAt: string;
+  status: "LIVE" | "CLOSING SOON" | "UPCOMING" | "COMPLETED";
+  entriesSold: number;
+  totalEntries: number;
+  maxPerUser: number;
+  description: string;
+}
+
+function mapCompetition(id: string, data: Record<string, unknown>): CRMCompetition | null {
+  const rawStatus = str(data["status"], "LIVE").toUpperCase();
+  if (rawStatus === "DRAFT" || rawStatus === "CANCELLED") return null;
+
+  const closesAt = toIso(data["closes"] ?? data["closesAt"] ?? data["drawDate"]);
+  const closed =
+    rawStatus === "COMPLETED" ||
+    rawStatus === "CLOSED" ||
+    rawStatus === "CANCELLED" ||
+    data["entriesClosed"] === true ||
+    (closesAt ? new Date(closesAt).getTime() < Date.now() : false);
+
+  const status: CRMCompetition["status"] = closed
+    ? "COMPLETED"
+    : rawStatus === "CLOSING SOON"
+      ? "CLOSING SOON"
+      : rawStatus === "UPCOMING"
+        ? "UPCOMING"
+        : "LIVE";
+
+  const slug = str(data["slug"]) || id;
+  return {
+    id,
+    slug,
+    title: str(data["title"], str(data["assetName"], slug)),
+    category: str(data["category"], "General"),
+    entryPriceKobo: num(data["entryPrice"]),
+    prizeValueKobo: num(data["marketValueKobo"] ?? data["prizeValueKobo"]),
+    closesAt,
+    status,
+    entriesSold: num(data["entriesSold"]),
+    totalEntries: num(data["totalEntries"]),
+    maxPerUser: num(data["maxPerUser"] ?? data["maxTicketsPerUser"], 50),
+    description: str(data["description"]),
+  };
+}
+
+/**
+ * Real-time subscription to the live competition catalogue. The CRM uses it
+ * for the Playbook talking points and for building starter templates from
+ * actual prize names and prices.
+ */
+export function subscribeCRMCompetitions(
+  callback: (competitions: CRMCompetition[]) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  return subscribeCrmCollection<CRMCompetition | null>(
+    "competitions",
+    (id, data) => mapCompetition(id, data),
+    (items) => {
+      const order: Record<CRMCompetition["status"], number> = {
+        "CLOSING SOON": 0,
+        LIVE: 1,
+        UPCOMING: 2,
+        COMPLETED: 3,
+      };
+      callback(
+        (items.filter(Boolean) as CRMCompetition[]).sort((a, b) => {
+          const byStatus = order[a.status] - order[b.status];
+          if (byStatus !== 0) return byStatus;
+          return (a.closesAt || "9999").localeCompare(b.closesAt || "9999");
+        }),
+      );
+    },
+    onError,
+    100,
+  );
+}
+
+/** Formats a kobo amount the way the storefront does. */
+function nairaFromKobo(kobo: number): string {
+  if (!Number.isFinite(kobo) || kobo <= 0) return "—";
+  return `₦${Math.round(kobo / 100).toLocaleString("en-NG")}`;
+}
+
+function closeLabel(competition: CRMCompetition | undefined): string {
+  if (!competition?.closesAt) return "while entries last";
+  const date = new Date(competition.closesAt);
+  if (Number.isNaN(date.getTime())) return "while entries last";
+  return date.toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" });
+}
+
+
+function subscribeCrmCollection<T>(
+  collectionName: string,
+  mapper: (id: string, data: Record<string, unknown>) => T,
+  callback: (items: T[]) => void,
+  onError?: (err: Error) => void,
+  max = 400,
+): () => void {
+  try {
+    const q = query(collection(db, collectionName), limit(max));
+    return onSnapshot(
+      q,
+      (snap) => {
+        callback(snap.docs.map((d) => mapper(d.id, d.data() as Record<string, unknown>)));
+      },
+      (err) => {
+        console.warn(`CRM ${collectionName} sync error:`, err);
+        if (onError) onError(err);
+      },
+    );
+  } catch (err) {
+    console.error(`CRM ${collectionName} subscription init error:`, err);
+    return () => {};
+  }
+}
+
+/* ----------------------------- Deals ------------------------------------- */
+
+function mapDeal(id: string, data: Record<string, unknown>): CRMDeal {
+  const stage = (str(data["stage"], "new") as DealStage) ?? "new";
+  return {
+    id,
+    title: str(data["title"], "Untitled deal"),
+    leadId: str(data["leadId"]) || undefined,
+    contactName: str(data["contactName"], "Unknown contact"),
+    contactEmail: str(data["contactEmail"]) || undefined,
+    contactPhone: str(data["contactPhone"]) || undefined,
+    value: num(data["value"]),
+    stage: DEAL_STAGES.some((s) => s.id === stage) ? stage : "new",
+    probability: data["probability"] === undefined ? STAGE_PROBABILITY[stage] ?? 10 : num(data["probability"]),
+    expectedCloseDate: str(data["expectedCloseDate"]) || undefined,
+    ownerName: str(data["ownerName"]) || undefined,
+    ownerId: str(data["ownerId"]) || undefined,
+    notes: str(data["notes"]) || undefined,
+    createdAt: toIso(data["createdAt"]),
+    updatedAt: toIso(data["updatedAt"]) || toIso(data["createdAt"]),
+  };
+}
+
+export function subscribeCRMDeals(
+  callback: (deals: CRMDeal[]) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  return subscribeCrmCollection("crm_deals", mapDeal, (deals) => {
+    callback(
+      [...deals].sort(
+        (a, b) =>
+          new Date(b.updatedAt || b.createdAt || 0).getTime() -
+          new Date(a.updatedAt || a.createdAt || 0).getTime(),
+      ),
+    );
+  }, onError);
+}
+
+export async function createCRMDeal(input: {
+  title: string;
+  contactName: string;
+  leadId?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  value: number;
+  stage: DealStage;
+  expectedCloseDate?: string;
+  ownerName?: string;
+  ownerId?: string;
+  notes?: string;
+}): Promise<{ id: string; error?: string }> {
+  const now = new Date().toISOString();
+  try {
+    const docRef = await addDoc(collection(db, "crm_deals"), {
+      ...input,
+      probability: STAGE_PROBABILITY[input.stage],
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { id: docRef.id };
+  } catch (err: any) {
+    return { id: "", error: err?.message || "Could not create deal" };
+  }
+}
+
+export async function updateCRMDeal(
+  id: string,
+  patch: Partial<Pick<CRMDeal, "title" | "value" | "stage" | "probability" | "expectedCloseDate" | "notes" | "contactName" | "contactEmail" | "contactPhone">>,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const payload: Record<string, unknown> = { ...patch, updatedAt: new Date().toISOString() };
+    if (patch.stage && patch.probability === undefined) {
+      payload["probability"] = STAGE_PROBABILITY[patch.stage];
+    }
+    await updateDoc(doc(db, "crm_deals", id), payload);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || "Could not update deal" };
+  }
+}
+
+export async function deleteCRMDeal(id: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, "crm_deals", id));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/* ----------------------------- Tasks ------------------------------------- */
+
+function mapTask(id: string, data: Record<string, unknown>): CRMTask {
+  return {
+    id,
+    title: str(data["title"], "Untitled task"),
+    description: str(data["description"]) || undefined,
+    leadId: str(data["leadId"]) || undefined,
+    contactName: str(data["contactName"]) || undefined,
+    dueDate: toIso(data["dueDate"]),
+    priority: (["low", "medium", "high"].includes(str(data["priority"]))
+      ? str(data["priority"])
+      : "medium") as TaskPriority,
+    status: str(data["status"]) === "done" ? "done" : "open",
+    ownerName: str(data["ownerName"]) || undefined,
+    ownerId: str(data["ownerId"]) || undefined,
+    createdAt: toIso(data["createdAt"]),
+    completedAt: toIso(data["completedAt"]) || undefined,
+  };
+}
+
+export function subscribeCRMTasks(
+  callback: (tasks: CRMTask[]) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  return subscribeCrmCollection("crm_tasks", mapTask, (tasks) => {
+    callback(
+      [...tasks].sort((a, b) => {
+        if (a.status !== b.status) return a.status === "open" ? -1 : 1;
+        return new Date(a.dueDate || 0).getTime() - new Date(b.dueDate || 0).getTime();
+      }),
+    );
+  }, onError);
+}
+
+export async function createCRMTask(input: {
+  title: string;
+  description?: string;
+  leadId?: string;
+  contactName?: string;
+  dueDate: string;
+  priority: TaskPriority;
+  ownerName?: string;
+  ownerId?: string;
+}): Promise<{ id: string; error?: string }> {
+  try {
+    const docRef = await addDoc(collection(db, "crm_tasks"), {
+      ...input,
+      status: "open",
+      createdAt: new Date().toISOString(),
+    });
+    return { id: docRef.id };
+  } catch (err: any) {
+    return { id: "", error: err?.message || "Could not create task" };
+  }
+}
+
+export async function updateCRMTask(
+  id: string,
+  patch: Partial<Pick<CRMTask, "title" | "description" | "dueDate" | "priority" | "status" | "contactName">>,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const payload: Record<string, unknown> = { ...patch };
+    if (patch.status === "done") payload["completedAt"] = new Date().toISOString();
+    if (patch.status === "open") payload["completedAt"] = "";
+    await updateDoc(doc(db, "crm_tasks", id), payload);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || "Could not update task" };
+  }
+}
+
+export async function deleteCRMTask(id: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, "crm_tasks", id));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/* ----------------------------- Notes ------------------------------------- */
+
+function mapNote(id: string, data: Record<string, unknown>): CRMNote {
+  return {
+    id,
+    leadId: str(data["leadId"]),
+    contactName: str(data["contactName"]),
+    body: str(data["body"]),
+    authorName: str(data["authorName"], "Staff"),
+    authorId: str(data["authorId"]),
+    createdAt: toIso(data["createdAt"]),
+    pinned: data["pinned"] === true,
+  };
+}
+
+export function subscribeCRMNotes(
+  callback: (notes: CRMNote[]) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  return subscribeCrmCollection("crm_notes", mapNote, (notes) => {
+    callback(
+      [...notes].sort(
+        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+      ),
+    );
+  }, onError);
+}
+
+export async function createCRMNote(input: {
+  leadId: string;
+  contactName: string;
+  body: string;
+  authorName: string;
+  authorId: string;
+  pinned?: boolean;
+}): Promise<{ id: string; error?: string }> {
+  try {
+    const docRef = await addDoc(collection(db, "crm_notes"), {
+      ...input,
+      pinned: input.pinned === true,
+      createdAt: new Date().toISOString(),
+    });
+    return { id: docRef.id };
+  } catch (err: any) {
+    return { id: "", error: err?.message || "Could not save note" };
+  }
+}
+
+export async function deleteCRMNote(id: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, "crm_notes", id));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/* --------------------------- Templates ----------------------------------- */
+
+function mapTemplate(id: string, data: Record<string, unknown>): CRMTemplate {
+  const channel = str(data["channel"], "email");
+  return {
+    id,
+    name: str(data["name"], "Untitled template"),
+    channel: (["email", "whatsapp", "call_script"].includes(channel)
+      ? channel
+      : "email") as TemplateChannel,
+    subject: str(data["subject"]) || undefined,
+    body: str(data["body"]),
+    createdBy: str(data["createdBy"]) || undefined,
+    createdAt: toIso(data["createdAt"]),
+    updatedAt: toIso(data["updatedAt"]) || undefined,
+  };
+}
+
+export function subscribeCRMTemplates(
+  callback: (templates: CRMTemplate[]) => void,
+  onError?: (err: Error) => void,
+): () => void {
+  return subscribeCrmCollection("crm_templates", mapTemplate, (templates) => {
+    callback(
+      [...templates].sort(
+        (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+      ),
+    );
+  }, onError, 200);
+}
+
+/**
+ * Builds the starter template set from the live competition catalogue, so
+ * every number, prize name and close date in the copy is real. Falls back to
+ * generic (still accurate) copy when no competition is published yet.
+ */
+export function buildStarterTemplates(
+  competitions: CRMCompetition[] = [],
+): Array<Omit<CRMTemplate, "id" | "createdAt">> {
+  const active = competitions.filter(
+    (c) => c.status === "LIVE" || c.status === "CLOSING SOON",
+  );
+  const featured =
+    active.find((c) => c.status === "CLOSING SOON") ?? active[0] ?? competitions[0] ?? null;
+  const secondary = active.find((c) => c.id !== featured?.id) ?? null;
+  const site = "https://www.raffila.com";
+
+  const featuredValue =
+    featured && featured.prizeValueKobo > 0
+      ? ` worth ${nairaFromKobo(featured.prizeValueKobo)}`
+      : "";
+  const featuredPrice =
+    featured && featured.entryPriceKobo > 0 ? nairaFromKobo(featured.entryPriceKobo) : "";
+  const featuredLink = featured ? `${site}/competitions/${featured.slug}` : `${site}/competitions`;
+  const featuredClose = closeLabel(featured ?? undefined);
+  const remaining =
+    featured && featured.totalEntries > 0
+      ? Math.max(0, featured.totalEntries - featured.entriesSold)
+      : 0;
+  const remainingLine =
+    featured && remaining > 0
+      ? ` ${remaining.toLocaleString("en-NG")} of ${featured.totalEntries.toLocaleString("en-NG")} entries are still available.`
+      : "";
+  const reengageLine = secondary
+    ? ` ${secondary.title}${secondary.prizeValueKobo > 0 ? ` (worth ${nairaFromKobo(secondary.prizeValueKobo)})` : ""} is open now${secondary.entryPriceKobo > 0 ? ` — entry from ${nairaFromKobo(secondary.entryPriceKobo)}` : ""}${secondary.closesAt ? `, closing ${closeLabel(secondary)}` : ""}.`
+    : featured
+      ? ` ${featured.title} is open now${featuredPrice ? ` — entry from ${featuredPrice}` : ""}${featured.closesAt ? `, closing ${featuredClose}` : ""}.`
+      : "";
+
+  return [
+    {
+      name: featured ? `First touch — ${featured.title}` : "First touch — live competition",
+      channel: "whatsapp",
+      body: `Hi {{name}} 👋
+
+This is {{rep}} from Raffila. Entries are open on ${featured ? `${featured.title}${featuredValue}` : "our current prize line-up"}${featured && featuredPrice ? ` — entry from ${featuredPrice}, closing ${featuredClose}` : ""}.
+
+Every draw is independently verifiable: the SHA-256 commit is published before entries close, so the result is locked in advance.
+
+Full prize and entry options here: ${featuredLink}
+
+Want me to walk you through it?`,
+    },
+    {
+      name: "Follow-up — started an entry, didn't finish",
+      channel: "whatsapp",
+      body: `Hi {{name}}, {{rep}} from Raffila again.
+
+I can see you started an entry${featured ? ` on ${featured.title}` : ""} but it didn't complete — nothing was charged. If checkout misbehaved, I can help you finish in under two minutes, or answer any question about the prize first.
+
+Still interested? Just reply here.`,
+    },
+    {
+      name: featured ? `Closing soon — ${featured.title}` : "Closing soon reminder",
+      channel: "whatsapp",
+      body: `Hi {{name}}, quick one from {{rep}} at Raffila.
+
+${featured ? `${featured.title}${featuredValue} closes ${featuredClose}.` : "Our current draw closes soon."}${remainingLine}
+
+${featured && featuredPrice ? `Entry is ${featuredPrice} per ticket${featured.maxPerUser > 0 ? `, capped at ${featured.maxPerUser} tickets per account` : ""}.` : "Ticket prices are listed on the competition page."}
+
+${featuredLink}
+
+Shall I reserve your tickets before it closes?`,
+    },
+    {
+      name: "Winner congratulations",
+      channel: "email",
+      subject: "🎉 Congratulations {{name}} — your Raffila ticket was drawn",
+      body: `Hi {{name}},
+
+Congratulations — your ticket was selected in a verified Raffila draw.
+
+What happens next:
+1. We confirm your identity and the delivery details on your account
+2. Our team schedules the handover (or the bank transfer, for cash prizes)
+3. You receive the prize together with its documentation
+
+Reply to this email and your account manager will call you back the same working day.
+
+— {{rep}}, Raffila`,
+    },
+    {
+      name: "Re-engagement — quiet for 30 days",
+      channel: "email",
+      subject: secondary
+        ? `${secondary.title} — still open on Raffila`
+        : "{{name}}, your next entry is one tap away",
+      body: `Hi {{name}},
+
+It's been a while since your last Raffila entry, and the line-up has moved on.${reengageLine}
+
+Your account is still active, and every draw remains verifiable after the fact.
+
+${secondary ? `${site}/competitions/${secondary.slug}` : `${site}/competitions`}
+
+— {{rep}}, Raffila`,
+    },
+    {
+      name: "Objection — is the draw fair?",
+      channel: "call_script",
+      body: `"That's the right question to ask. Every draw uses a SHA-256 commit published before entries close, so the seed is locked in advance. Any customer can verify the hash on our draw-verification page. Nothing is edited after the fact — that's the whole point."`,
+    },
+    {
+      name: "Objection — how do I receive my prize?",
+      channel: "call_script",
+      body: `"Physical prizes are handed over with legal documentation, and cash prizes are paid to a verified Nigerian bank account once the draw is verified. You don't chase us for it — the winners page is public, and every past winner is named there."`,
+    },
+  ];
+}
+
+/**
+ * Writes the starter templates into Firestore. Pass the live competitions so
+ * the copy contains real prize names, prices and close dates.
+ */
+export async function seedStarterTemplates(
+  authorName: string,
+  competitions: CRMCompetition[] = [],
+): Promise<boolean> {
+  try {
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+    for (const tpl of buildStarterTemplates(competitions)) {
+      const ref = doc(collection(db, "crm_templates"));
+      batch.set(ref, { ...tpl, createdBy: authorName, createdAt: now });
+    }
+    await batch.commit();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function createCRMTemplate(input: {
+  name: string;
+  channel: TemplateChannel;
+  subject?: string;
+  body: string;
+  createdBy?: string;
+}): Promise<{ id: string; error?: string }> {
+  try {
+    const docRef = await addDoc(collection(db, "crm_templates"), {
+      ...input,
+      createdAt: new Date().toISOString(),
+    });
+    return { id: docRef.id };
+  } catch (err: any) {
+    return { id: "", error: err?.message || "Could not save template" };
+  }
+}
+
+export async function updateCRMTemplate(
+  id: string,
+  patch: Partial<Pick<CRMTemplate, "name" | "channel" | "subject" | "body">>,
+): Promise<boolean> {
+  try {
+    await updateDoc(doc(db, "crm_templates", id), {
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteCRMTemplate(id: string): Promise<boolean> {
+  try {
+    await deleteDoc(doc(db, "crm_templates", id));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/* -------------------------- Lead scoring --------------------------------- */
+
+export type ScoreBand = "hot" | "warm" | "cold";
+
+export interface LeadScore {
+  score: number;
+  band: ScoreBand;
+  reasons: string[];
+}
+
+/**
+ * Deterministic lead score (0-100) from real account + activity data.
+ * Spend and ticket history dominate; recency and call engagement refine it.
+ */
+export function computeLeadScore(lead: CRMLead, activities: CRMActivity[] = []): LeadScore {
+  let score = 0;
+  const reasons: string[] = [];
+
+  const tickets = lead.ticketsBought || 0;
+  if (tickets > 0) {
+    const ticketPoints = Math.min(30, Math.round(tickets * 4));
+    score += ticketPoints;
+    reasons.push(`${tickets} ticket${tickets === 1 ? "" : "s"} purchased`);
+  }
+
+  const spent = lead.totalSpent || 0;
+  const spendPoints =
+    spent >= 500000 ? 25 : spent >= 150000 ? 18 : spent >= 50000 ? 12 : spent >= 10000 ? 6 : 0;
+  if (spendPoints) {
+    score += spendPoints;
+    reasons.push(`₦${spent.toLocaleString()} lifetime spend`);
+  }
+
+  const leadCalls = activities.filter(
+    (a) => (lead.id && a.leadId === lead.id) || a.clientPhone === lead.phone,
+  );
+  if (leadCalls.length) {
+    score += Math.min(15, leadCalls.length * 5);
+    reasons.push(`${leadCalls.length} logged call${leadCalls.length === 1 ? "" : "s"}`);
+    if (leadCalls.some((c) => c.outcome === "converted")) {
+      score += 15;
+      reasons.push("converted on a call");
+    }
+  }
+
+  if (lead.status === "converted") {
+    score += 20;
+    reasons.push("converted lead");
+  } else if (lead.status === "hot") {
+    score += 18;
+    reasons.push("marked hot");
+  } else if (lead.status === "qualified") {
+    score += 14;
+    reasons.push("qualified");
+  } else if (lead.status === "contacted") {
+    score += 8;
+    reasons.push("already contacted");
+  } else if (lead.status === "lost" || lead.status === "unresponsive") {
+    score -= 15;
+    reasons.push("marked " + lead.status);
+  }
+
+  if (lead.lastContacted) {
+    const days = (Date.now() - new Date(lead.lastContacted).getTime()) / 86400000;
+    if (days <= 2) {
+      score += 12;
+      reasons.push("contacted in the last 48h");
+    } else if (days <= 7) {
+      score += 7;
+      reasons.push("contacted this week");
+    } else if (days <= 30) {
+      score += 2;
+    } else {
+      score -= 5;
+    }
+  } else if (tickets === 0) {
+    score += 4;
+    reasons.push("new, never contacted");
+  }
+
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  const band: ScoreBand = score >= 70 ? "hot" : score >= 40 ? "warm" : "cold";
+  return { score, band, reasons: reasons.slice(0, 4) };
+}
+
+/* --------------------------- CSV export ---------------------------------- */
+
+export function downloadCSV(filenamePrefix: string, headers: string[], rows: unknown[][]): number {
+  if (typeof window === "undefined" || !rows.length) return 0;
+  const escape = (val: unknown): string => {
+    if (val === null || val === undefined) return '""';
+    return `"${String(val).replace(/"/g, '""')}"`;
+  };
+  const csv = [headers.map(escape).join(","), ...rows.map((r) => r.map(escape).join(","))].join(
+    "\r\n",
+  );
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  return rows.length;
+}
+
