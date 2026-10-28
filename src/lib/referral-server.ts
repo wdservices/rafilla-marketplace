@@ -346,6 +346,7 @@ export type ReferralRecruit = {
   initials: string;
   joinedAtMs: number;
   directRecruits: number;
+  level?: number;
 };
 
 export type GetReferralDashboardResult = {
@@ -362,6 +363,7 @@ export type GetReferralDashboardResult = {
   rates: typeof DEFAULT_REFERRAL_RATES;
   minPayoutKobo: number;
   recruits: ReferralRecruit[];
+  recruitsByLevel?: { l1: ReferralRecruit[]; l2: ReferralRecruit[]; l3: ReferralRecruit[] };
   commissions: Array<{
     id: string;
     level: number;
@@ -444,9 +446,8 @@ export const getReferralDashboard = createServerFn({ method: "POST" })
       num((config["thresholds"] as Record<string, unknown> | undefined)?.["minPayout"], 5000) * 100,
     );
 
-    // Direct recruits (server-only read — client rules keep other users'
-    // documents private).
-    const recruits: ReferralRecruit[] = [];
+    // 3-Level Recruits Tree (Level 1: 10%, Level 2: 6%, Level 3: 4%)
+    const l1Recruits: ReferralRecruit[] = [];
     const recruitsSnap = await adminDb
       .collection("users")
       .where("referredBy", "==", uid)
@@ -458,16 +459,79 @@ export const getReferralDashboard = createServerFn({ method: "POST" })
       const name = displayNameOf(v);
       const handle = str(v["handle"]);
       const counts = (v["referralTreeCount"] ?? {}) as Record<string, unknown>;
-      recruits.push({
+      l1Recruits.push({
         uid: doc.id,
         name,
         handle,
         initials: initialsOf(name, handle),
         joinedAtMs: tsToMs(v["referredAt"] ?? v["createdAt"]),
         directRecruits: num(counts["l1"]),
+        level: 1,
       });
     }
-    recruits.sort((a, b) => b.joinedAtMs - a.joinedAtMs);
+    l1Recruits.sort((a, b) => b.joinedAtMs - a.joinedAtMs);
+
+    const l2Recruits: ReferralRecruit[] = [];
+    const l1Uids = l1Recruits.map((r) => r.uid);
+    if (l1Uids.length > 0) {
+      for (let i = 0; i < l1Uids.length; i += 10) {
+        const chunk = l1Uids.slice(i, i + 10);
+        const snap = await adminDb
+          .collection("users")
+          .where("referredBy", "in", chunk)
+          .limit(50)
+          .get()
+          .catch(() => null);
+        for (const doc of snap?.docs ?? []) {
+          const v = doc.data();
+          const name = displayNameOf(v);
+          const handle = str(v["handle"]);
+          const counts = (v["referralTreeCount"] ?? {}) as Record<string, unknown>;
+          l2Recruits.push({
+            uid: doc.id,
+            name,
+            handle,
+            initials: initialsOf(name, handle),
+            joinedAtMs: tsToMs(v["referredAt"] ?? v["createdAt"]),
+            directRecruits: num(counts["l1"]),
+            level: 2,
+          });
+        }
+      }
+      l2Recruits.sort((a, b) => b.joinedAtMs - a.joinedAtMs);
+    }
+
+    const l3Recruits: ReferralRecruit[] = [];
+    const l2Uids = l2Recruits.map((r) => r.uid);
+    if (l2Uids.length > 0) {
+      for (let i = 0; i < l2Uids.length; i += 10) {
+        const chunk = l2Uids.slice(i, i + 10);
+        const snap = await adminDb
+          .collection("users")
+          .where("referredBy", "in", chunk)
+          .limit(50)
+          .get()
+          .catch(() => null);
+        for (const doc of snap?.docs ?? []) {
+          const v = doc.data();
+          const name = displayNameOf(v);
+          const handle = str(v["handle"]);
+          const counts = (v["referralTreeCount"] ?? {}) as Record<string, unknown>;
+          l3Recruits.push({
+            uid: doc.id,
+            name,
+            handle,
+            initials: initialsOf(name, handle),
+            joinedAtMs: tsToMs(v["referredAt"] ?? v["createdAt"]),
+            directRecruits: num(counts["l1"]),
+            level: 3,
+          });
+        }
+      }
+      l3Recruits.sort((a, b) => b.joinedAtMs - a.joinedAtMs);
+    }
+
+    const recruits = l1Recruits;
 
     // Commission ledger (server-written, owner-readable subcollection).
     const commissions: GetReferralDashboardResult["commissions"] = [];
@@ -557,6 +621,11 @@ export const getReferralDashboard = createServerFn({ method: "POST" })
       rates,
       minPayoutKobo,
       recruits,
+      recruitsByLevel: {
+        l1: l1Recruits,
+        l2: l2Recruits,
+        l3: l3Recruits,
+      },
       commissions,
       payouts: payouts.slice(0, 10),
     };

@@ -6,7 +6,7 @@
  * (entries QR, invite route) and must stay browser-safe.
  */
 
-export const REFERRAL_MAX_LEVELS = 5;
+export const REFERRAL_MAX_LEVELS = 3;
 
 export type ReferralRates = {
   l1: number;
@@ -16,10 +16,10 @@ export type ReferralRates = {
   l5: number;
 };
 
-/** Admin → Config → Referral rates defaults (percent of entry fee). */
-export const DEFAULT_REFERRAL_RATES: ReferralRates = { l1: 10, l2: 5, l3: 3, l4: 2, l5: 1 };
+/** 3-level referral network defaults: L1 10%, L2 6%, L3 4% (percent of ticket entry fee). */
+export const DEFAULT_REFERRAL_RATES: ReferralRates = { l1: 10, l2: 6, l3: 4, l4: 0, l5: 0 };
 
-const RATE_KEYS: Array<keyof ReferralRates> = ["l1", "l2", "l3", "l4", "l5"];
+const RATE_KEYS: Array<keyof ReferralRates> = ["l1", "l2", "l3"];
 
 /**
  * Clamp admin-configured rates (platformSettings/raffila_config.referralRates)
@@ -91,10 +91,10 @@ export function referralCodeCandidates(seed: string): string[] {
   return out;
 }
 
-/** Path for a referral invite link (callers prepend the origin). */
+/** Path for a referral invite link (takes prospects directly to Create Account). */
 export function referralInvitePath(code: string): string {
   const clean = sanitizeReferralCode(code);
-  return clean ? `/invite/${clean}` : "";
+  return clean ? `/auth?tab=register&ref=${clean}` : "";
 }
 
 /** Absolute invite link for sharing (QR payload, copy buttons, share intents). */

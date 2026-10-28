@@ -156,7 +156,10 @@ function VerifyValue({
 
   return (
     <div className="mt-3 rounded-xl bg-cream p-3 ring-1 ring-ink/10">
-      <label htmlFor={id} className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-ink/50">
+      <label
+        htmlFor={id}
+        className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-ink/50"
+      >
         {label}
       </label>
       <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">

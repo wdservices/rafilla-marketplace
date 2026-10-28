@@ -249,7 +249,7 @@ export function CookieConsentBanner() {
                   </div>
                   <p className="mt-2 text-sm leading-relaxed text-ink/60">
                     Required for site function, cannot be turned off. These cookies enable core
-                    features like security, account access, and wallet state.
+                    features like security, account access, and ticket session state.
                   </p>
                   <button
                     type="button"
@@ -269,8 +269,8 @@ export function CookieConsentBanner() {
                     Functional
                   </Label>
                   <p className="mt-2 text-sm leading-relaxed text-ink/60">
-                    Remembers preferences, language, wallet state, and UI customization to give you
-                    a smoother experience.
+                    Remembers preferences, language, ticket cart, and UI customization to give you a
+                    smoother experience.
                   </p>
                   <button
                     type="button"

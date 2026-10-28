@@ -44,12 +44,6 @@ const desktopNavItems: NavItem[] = [
     key: "Competitions",
   },
   {
-    label: "Wallet",
-    icon: <Wallet className="size-5" />,
-    to: "/dashboard/wallet",
-    key: "Wallet",
-  },
-  {
     label: "Entries",
     icon: <Ticket className="size-5" />,
     to: "/dashboard/entries",
@@ -73,12 +67,6 @@ const desktopNavItems: NavItem[] = [
     to: "/dashboard/profile",
     key: "Profile",
   },
-  {
-    label: "Security",
-    icon: <ShieldCheck className="size-5" />,
-    to: "/dashboard/security",
-    key: "Security",
-  },
 ];
 
 const bottomNavItems: NavItem[] = [
@@ -93,12 +81,6 @@ const bottomNavItems: NavItem[] = [
     icon: <Trophy className="size-5" />,
     to: "/competitions",
     key: "Competitions",
-  },
-  {
-    label: "Wallet",
-    icon: <Wallet className="size-5" />,
-    to: "/dashboard/wallet",
-    key: "Wallet",
   },
   {
     label: "Entries",

@@ -26,20 +26,21 @@ import {
 } from "@/lib/referral-server";
 import { referralInviteUrl } from "@/lib/referral-core";
 
-const levelPct: Record<number, string> = { 1: "10%", 2: "5%", 3: "3%", 4: "2%", 5: "1%" };
+const levelPct: Record<number, string> = { 1: "10%", 2: "6%", 3: "4%" };
+const levelDescriptions: Record<number, string> = {
+  1: "Direct Referrals — earn 10% from their ticket purchase",
+  2: "Your level referrals — earn 6% from their ticket purchase",
+  3: "Your level 2 referrals — earn 4% from their ticket purchase",
+};
 const levelRing: Record<number, string> = {
   1: "ring-coral/60",
   2: "ring-coral/45",
   3: "ring-coral/30",
-  4: "ring-coral/20",
-  5: "ring-ink/10",
 };
 const levelBadge: Record<number, string> = {
   1: "bg-coral/15 text-coral",
   2: "bg-sky/20 text-ink",
   3: "bg-lemon/30 text-ink",
-  4: "bg-mint/30 text-ink",
-  5: "bg-lilac/30 text-ink",
 };
 
 function shortDate(ms: number): string {
@@ -77,6 +78,7 @@ export function DashboardReferralsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [copied, setCopied] = useState<"url" | "code" | null>(null);
+  const [selectedLevel, setSelectedLevel] = useState<1 | 2 | 3>(1);
 
   const load = useCallback(async () => {
     if (!uid) return;
@@ -253,93 +255,145 @@ export function DashboardReferralsPage() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-ink/45">
-                5-level earning tree
+                3-level earning tree
               </p>
               <h2 className="mt-2 font-display text-2xl font-extrabold text-ink">
                 Your referral network
               </h2>
               <p className="mt-1 max-w-lg text-xs font-bold leading-relaxed text-ink/55">
-                Coral ring = earning you commissions. Commissions are credited instantly on every
-                paid entry.
+                Select a level below to view all clients in that tier. Commissions are credited
+                instantly to your wallet on every paid ticket purchase.
               </p>
             </div>
-            <div className="flex flex-wrap gap-1.5 text-[10px] font-extrabold">
-              {[1, 2, 3, 4, 5].map((lv) => (
-                <span
-                  key={lv}
-                  className={cn(
-                    "rounded-full px-2.5 py-1 ring-2",
-                    levelRing[lv],
-                    lv <= 4 ? "bg-coral/10 text-coral" : "bg-ink/5 text-ink/50",
-                  )}
-                >
-                  L{lv} · {pctFor(lv)}
-                </span>
-              ))}
+
+            {/* Clickable Level Filter Buttons */}
+            <div className="flex flex-wrap gap-2" role="tablist">
+              {[1, 2, 3].map((lv) => {
+                const isSelected = selectedLevel === lv;
+                const count =
+                  lv === 1
+                    ? (data?.treeCounts?.l1 ?? data?.directRecruits ?? data?.recruits?.length ?? 0)
+                    : lv === 2
+                      ? (data?.treeCounts?.l2 ?? data?.recruitsByLevel?.l2?.length ?? 0)
+                      : (data?.treeCounts?.l3 ?? data?.recruitsByLevel?.l3?.length ?? 0);
+                return (
+                  <button
+                    key={lv}
+                    type="button"
+                    role="tab"
+                    aria-selected={isSelected}
+                    onClick={() => setSelectedLevel(lv as 1 | 2 | 3)}
+                    className={cn(
+                      "flex items-center gap-2 rounded-2xl px-3.5 py-2 transition-all text-xs font-extrabold cursor-pointer border",
+                      isSelected
+                        ? "bg-coral text-white border-coral shadow-md ring-2 ring-coral/20 scale-[1.02]"
+                        : "bg-paper text-ink/75 hover:bg-cream/80 hover:text-ink border-ink/10",
+                    )}
+                  >
+                    <span>Level {lv}</span>
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[10px]",
+                        isSelected ? "bg-white/25 text-white" : "bg-coral/15 text-coral",
+                      )}
+                    >
+                      {pctFor(lv)}
+                    </span>
+                    <span
+                      className={cn(
+                        "text-[10px] font-bold",
+                        isSelected ? "text-white/85" : "text-ink/40",
+                      )}
+                    >
+                      ({count})
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          <div className="mt-8 space-y-8">
-            <div className="flex justify-center">
-              <div className="flex flex-col items-center">
-                <div
-                  className={cn(
-                    "grid size-14 place-items-center rounded-full bg-coral font-display text-sm font-extrabold text-white ring-4",
-                    levelRing[1],
-                  )}
-                >
-                  {firstName.slice(0, 2).toUpperCase()}
-                </div>
-                <p className="mt-2 text-[11px] font-extrabold text-ink">{firstName} (You)</p>
-                <p className="text-[10px] font-bold text-ink/45">
-                  {data?.directRecruits ?? 0} recruits · L1 {pctFor(1)}
-                </p>
-              </div>
+          {/* Level Info Banner */}
+          <div className="mt-6 rounded-2xl bg-cream/70 p-4 ring-1 ring-ink/5 flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-2.5">
+              <span className="grid size-7 place-items-center rounded-xl bg-coral text-white font-extrabold text-xs">
+                L{selectedLevel}
+              </span>
+              <p className="text-xs font-extrabold text-ink">{levelDescriptions[selectedLevel]}</p>
             </div>
+            <span className="text-[11px] font-bold text-ink/50">
+              {(() => {
+                const count =
+                  selectedLevel === 1
+                    ? (data?.recruitsByLevel?.l1?.length ?? data?.recruits?.length ?? 0)
+                    : selectedLevel === 2
+                      ? (data?.recruitsByLevel?.l2?.length ?? 0)
+                      : (data?.recruitsByLevel?.l3?.length ?? 0);
+                return `${count} client${count === 1 ? "" : "s"} at Level ${selectedLevel}`;
+              })()}
+            </span>
+          </div>
 
-            {data && data.recruits.length > 0 ? (
-              <>
-                <div className="flex justify-center">
-                  <div className="h-8 w-px bg-ink/10" />
-                </div>
-                <div className="flex max-w-[760px] flex-wrap justify-center gap-6">
-                  {data.recruits.slice(0, 12).map((n) => (
-                    <NodeCard key={n.uid} node={n} level={1} />
-                  ))}
-                  {data.recruits.length > 12 ? (
-                    <div className="flex flex-col items-center justify-center">
-                      <p className="text-xs font-extrabold text-ink/50">
-                        +{data.recruits.length - 12} more
-                      </p>
+          {/* Client List for Selected Level */}
+          <div className="mt-6">
+            {(() => {
+              const clients =
+                selectedLevel === 1
+                  ? (data?.recruitsByLevel?.l1 ?? data?.recruits ?? [])
+                  : selectedLevel === 2
+                    ? (data?.recruitsByLevel?.l2 ?? [])
+                    : (data?.recruitsByLevel?.l3 ?? []);
+
+              if (clients.length === 0) {
+                return (
+                  <div className="rounded-2xl bg-paper/60 p-8 text-center ring-1 ring-ink/5">
+                    <Users className="mx-auto size-7 text-ink/30" />
+                    <p className="mt-2 text-sm font-extrabold text-ink">
+                      No clients in Level {selectedLevel} yet
+                    </p>
+                    <p className="mt-1 text-xs max-w-md mx-auto font-medium text-ink/50 leading-relaxed">
+                      {selectedLevel === 1 &&
+                        "Share your referral link with friends. Anyone who signs up through your link becomes your Level 1 direct client and earns you 10% on every ticket purchase."}
+                      {selectedLevel === 2 &&
+                        "When your Level 1 direct referrals invite their own friends, those new users automatically join your Level 2 network and you earn 6% on every ticket purchase!"}
+                      {selectedLevel === 3 &&
+                        "When your Level 2 referrals invite others, they join your Level 3 network and you earn 4% on all their ticket purchases."}
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {clients.map((client) => (
+                    <div
+                      key={client.uid}
+                      className="flex items-center gap-3.5 rounded-2xl bg-paper p-4 ring-1 ring-ink/5 transition-all hover:shadow-xs hover:border-coral/20"
+                    >
+                      <div className="grid size-11 place-items-center rounded-2xl bg-coral/10 font-display text-xs font-extrabold text-coral ring-2 ring-coral/25 shrink-0">
+                        {client.initials}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-extrabold text-ink leading-tight">
+                          {client.name}
+                        </p>
+                        <p className="truncate text-xs font-bold text-ink/45">
+                          @{client.handle || "member"}
+                        </p>
+                        <div className="mt-1.5 flex items-center gap-2 text-[10px] font-bold text-ink/40">
+                          <span>Joined {shortDate(client.joinedAtMs)}</span>
+                          <span>•</span>
+                          <span>{client.directRecruits} recruits</span>
+                        </div>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-coral/15 px-2.5 py-1 text-[10px] font-extrabold text-coral">
+                        Earn {pctFor(selectedLevel)}
+                      </span>
                     </div>
-                  ) : null}
+                  ))}
                 </div>
-              </>
-            ) : (
-              <div className="mx-auto max-w-md rounded-2xl bg-cream p-5 text-center ring-1 ring-ink/5">
-                <Users className="mx-auto size-6 text-ink/30" />
-                <p className="mt-2 text-sm font-bold text-ink/60">No recruits yet</p>
-                <p className="mt-1 text-xs font-bold text-ink/45">
-                  Share your link — anyone who signs up through it joins your L1.
-                </p>
-              </div>
-            )}
-
-            {data && data.totalNetwork > 0 ? (
-              <div className="flex flex-wrap justify-center gap-2 text-[11px] font-extrabold">
-                {[1, 2, 3, 4, 5].map((lv) => (
-                  <span
-                    key={lv}
-                    className={cn(
-                      "rounded-full px-3 py-1.5 ring-1 ring-ink/10",
-                      lv <= 4 ? "bg-coral/10 text-coral" : "bg-ink/5 text-ink/50",
-                    )}
-                  >
-                    L{lv} · {data.treeCounts[`l${lv}` as "l1"]} members
-                  </span>
-                ))}
-              </div>
-            ) : null}
+              );
+            })()}
           </div>
         </div>
 

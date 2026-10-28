@@ -322,7 +322,7 @@ export function CompetitionCard({
             </Link>
           </Button>
           {(competition.status as string) === "DRAW_READY" ||
-              (competition.status as string) === "DRAW_IN_PROGRESS" ? (
+          (competition.status as string) === "DRAW_IN_PROGRESS" ? (
             <Button
               asChild
               size="md"

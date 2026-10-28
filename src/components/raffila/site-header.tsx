@@ -16,7 +16,6 @@ const links = [
   { label: "Winners", to: "/winners" as const },
   { label: "Trust & Safety", to: "/trust-safety" as const },
   { label: "My Entries", to: "/dashboard/entries" as const },
-  { label: "Become a partner", to: "/partner-signup" as const },
   { label: "About Raffila", to: "/about" as const },
   { label: "FAQ", to: "/faq" as const },
   { label: "Contact", to: "/contact" as const },
@@ -28,9 +27,10 @@ const links = [
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const { isAuthenticated, role, user } = useAuthSession();
+  const { isAuthenticated, role, user, isMounted } = useAuthSession();
   const { signOut } = useAuthActions();
   const rewardPool = useRewardPool();
+  const authed = isMounted && isAuthenticated;
 
   return (
     <header className="relative z-30 mx-auto w-full max-w-7xl px-4 pt-4 sm:px-6 lg:px-8">
@@ -64,17 +64,6 @@ export function SiteHeader() {
             </Link>
           ))}
           <Link
-            to="/partner-signup"
-            className={cn(
-              "text-sm font-bold text-ink/60 transition-colors hover:text-coral",
-              (pathname === "/partner-signup" || pathname === "/become-a-partner") &&
-                "text-coral font-extrabold",
-            )}
-            aria-current={pathname === "/partner-signup" ? "page" : undefined}
-          >
-            Become a partner
-          </Link>
-          <Link
             to="/about"
             className="text-sm font-bold text-ink/60 transition-colors hover:text-ink"
             aria-current={pathname === "/about" ? "page" : undefined}
@@ -93,7 +82,7 @@ export function SiteHeader() {
               {formatNaira(rewardPool.totalKobo)}
             </span>
           </span>
-          {isAuthenticated ? (
+          {authed ? (
             <div className="flex items-center gap-2">
               <NotificationBell />
               <CartButton />
@@ -141,9 +130,9 @@ export function SiteHeader() {
               {formatNaira(rewardPool.totalKobo)}
             </span>
           </span>
-          {isAuthenticated && <NotificationBell />}
+          {authed && <NotificationBell />}
           <CartButton />
-          {isAuthenticated ? (
+          {authed ? (
             <Button asChild variant="outline" size="sm">
               <Link
                 to={role === "admin" ? "/admin" : role === "partner" ? "/partner" : "/dashboard"}
@@ -198,7 +187,7 @@ export function SiteHeader() {
               </Link>
             ))}
           </div>
-          {isAuthenticated ? (
+          {authed ? (
             <>
               <Link
                 to={role === "admin" ? "/admin" : role === "partner" ? "/partner" : "/dashboard"}

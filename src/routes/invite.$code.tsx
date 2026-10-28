@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { ArrowRight, Ticket, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,21 @@ export const Route = createFileRoute("/invite/$code")({
   validateSearch: (search: Record<string, unknown>): { comp?: string } => {
     const comp = String(search["comp"] ?? "").trim();
     return comp ? { comp } : {};
+  },
+  beforeLoad: ({ params, search }) => {
+    const code = String(params.code ?? "").trim();
+    if (typeof window !== "undefined" && code) {
+      saveReferralCode(code);
+    }
+    // Directly send prospects to Create Account page with referral attribution
+    throw redirect({
+      to: "/auth",
+      search: {
+        tab: "register",
+        ref: code,
+        ...(search?.comp ? { comp: search.comp } : {}),
+      },
+    });
   },
   head: ({ params }) => {
     const code = String(params.code ?? "").toUpperCase();

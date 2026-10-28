@@ -14,9 +14,6 @@ import {
   Clock,
   Eye,
   PlayCircle,
-  FileDown,
-  BookOpen,
-  ShieldCheck,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -767,53 +764,6 @@ export function AdminOverview() {
           </p>
         )}
       </header>
-
-      {/* Master Operations Manual & Credentials Quick Access */}
-      <section className="mb-6 overflow-hidden rounded-[26px] bg-gradient-to-r from-forest via-[#0F3526] to-[#0A261B] p-5 sm:p-6 text-cream shadow-md">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-start gap-3.5">
-            <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-white/10 ring-1 ring-white/15 text-amber-400">
-              <BookOpen className="size-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider text-amber-300">
-                  <ShieldCheck className="size-3" />
-                  Master Documentation
-                </span>
-                <span className="text-[11px] font-bold text-cream/50">v2.0 Production Edition</span>
-              </div>
-              <h2 className="mt-1 font-display text-lg sm:text-xl font-extrabold tracking-tight text-white">
-                Raffila Platform Operations Manual & Third-Party Credentials
-              </h2>
-              <p className="mt-1 text-xs sm:text-sm font-medium text-cream/75 max-w-3xl">
-                Comprehensive reference covering user & admin account creation, competition setup,
-                the 9-stage cryptographic draw engine, corporate inboxes, and production credentials
-                for Google SSO, Namecheap, Firebase, Paystack, Cloudinary, and Resend.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <a
-              href="/docs/RAFILLA_MASTER_OPERATIONS_MANUAL.docx"
-              download="RAFILLA_MASTER_OPERATIONS_MANUAL.docx"
-              className="inline-flex items-center gap-2 rounded-xl bg-coral px-4 py-2.5 text-xs font-extrabold text-white transition-transform hover:scale-[1.02] shadow-sm hover:bg-coral/90"
-            >
-              <FileDown className="size-4" />
-              Download Manual (.docx)
-            </a>
-            <a
-              href="/docs/RAFILLA_MASTER_OPERATIONS_MANUAL.md"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 px-3.5 py-2.5 text-xs font-bold text-cream transition-colors hover:bg-white/20"
-            >
-              View Markdown (.md)
-            </a>
-          </div>
-        </div>
-      </section>
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <KpiCard

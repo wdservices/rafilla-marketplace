@@ -22,6 +22,12 @@ import {
   Mail,
   Crown,
   Activity,
+  KeyRound,
+  Copy,
+  Check,
+  Trash2,
+  ExternalLink,
+  Sparkles,
 } from "lucide-react";
 
 import { AdminShell } from "@/components/raffila/admin/admin-shell";
@@ -31,6 +37,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { db } from "@/lib/firebase";
 import { logActivity, sendAdminInvite, cancelAdminInvite } from "@/lib/activity-log";
@@ -38,6 +52,14 @@ import { FEATURE_META, DEFAULT_FEATURES, PLATFORM_CONFIG_DOC_ID } from "@/lib/pl
 import { getEmailDocKey, normalizeEmail } from "@/lib/user-validation";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { cn } from "@/lib/utils";
+import {
+  getStaffList,
+  generateStaffKey,
+  revokeStaffKey,
+  activateStaffKey,
+  deleteStaffKey,
+  StaffMember,
+} from "@/lib/crm-service";
 
 interface AdminRow {
   id: string;
@@ -97,6 +119,60 @@ export function AdminSettingsPage() {
     Array<{ email: string; invitedBy: string; createdAt: string }>
   >([]);
   const [cancellingInvite, setCancellingInvite] = useState<string | null>(null);
+
+  // ---- Staff & CRM Keys ----
+  const [staffList, setStaffList] = useState<StaffMember[]>(() => getStaffList());
+  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [newStaffName, setNewStaffName] = useState("");
+  const [newStaffEmail, setNewStaffEmail] = useState("");
+  const [newStaffRole, setNewStaffRole] = useState("Sales Representative");
+  const [createdKeyStaff, setCreatedKeyStaff] = useState<StaffMember | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const refreshStaff = () => setStaffList(getStaffList());
+
+  const handleCopyStaffKey = (key: string) => {
+    navigator.clipboard.writeText(key);
+    setCopiedKey(key);
+    toast.success("Staff Access Key copied to clipboard", {
+      description: "Send this key to your sales representative to sign in at /staff or /crm",
+    });
+    setTimeout(() => setCopiedKey(null), 2500);
+  };
+
+  const handleGenerateKey = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStaffName.trim() || !newStaffEmail.trim()) {
+      toast.error("Please enter staff name and email");
+      return;
+    }
+    const staff = generateStaffKey(newStaffName, newStaffEmail, newStaffRole);
+    refreshStaff();
+    setCreatedKeyStaff(staff);
+    toast.success("Sales Staff Key generated successfully!");
+    setNewStaffName("");
+    setNewStaffEmail("");
+    setNewStaffRole("Sales Representative");
+  };
+
+  const handleToggleStaffStatus = (staff: StaffMember) => {
+    if (staff.status === "active") {
+      revokeStaffKey(staff.key);
+      toast.warning(`Revoked login key for ${staff.name}`);
+    } else {
+      activateStaffKey(staff.key);
+      toast.success(`Re-activated login key for ${staff.name}`);
+    }
+    refreshStaff();
+  };
+
+  const handleDeleteStaffKey = (staff: StaffMember) => {
+    if (confirm(`Are you sure you want to delete access for ${staff.name}?`)) {
+      deleteStaffKey(staff.id);
+      toast.success(`Removed ${staff.name} from sales team`);
+      refreshStaff();
+    }
+  };
 
   const fetchAdmins = useCallback(async () => {
     setAdminsLoading(true);
@@ -688,6 +764,258 @@ export function AdminSettingsPage() {
             )}
           </div>
         </Section>
+
+        {/* Staff & CRM Access Keys */}
+        <Section
+          icon={KeyRound}
+          tone="bg-mint/30"
+          title="Staff & CRM Access Keys"
+          description="Generate isolated login keys for sales representatives. Staff use their key to sign in to the standalone Sales CRM at /crm or via the Unified Portal at /staff without accessing the super-admin dashboard."
+        >
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-ink/8">
+              <div>
+                <span className="text-xs font-extrabold text-ink">
+                  Active Sales Personnel ({staffList.filter((s) => s.status === "active").length})
+                </span>
+                <p className="text-[11px] font-bold text-ink/50 mt-0.5">
+                  Keys grant standalone access to client leads and call tracking only.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <a
+                  href="/crm"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 h-10 px-4 rounded-full border border-ink/10 bg-cream/50 hover:bg-cream text-xs font-bold text-ink transition-colors"
+                >
+                  <ExternalLink className="size-3.5 text-coral" />
+                  View CRM Portal
+                </a>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setCreatedKeyStaff(null);
+                    setIsStaffModalOpen(true);
+                  }}
+                  className="h-10 rounded-full px-5 text-xs font-bold gap-1.5"
+                >
+                  <KeyRound className="size-3.5" />
+                  Generate Staff Key
+                </Button>
+              </div>
+            </div>
+
+            {staffList.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-ink/15 p-8 text-center text-xs font-bold text-ink/55 space-y-1">
+                <p className="font-extrabold text-ink text-sm">No Sales Access Keys Generated</p>
+                <p>
+                  Click &quot;Generate Staff Key&quot; above to issue a key for your sales
+                  representative.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl ring-1 ring-ink/8 bg-white">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-cream/40 text-ink/60 font-extrabold border-b border-ink/8">
+                    <tr>
+                      <th className="py-3 px-4">Sales Rep</th>
+                      <th className="py-3 px-4">Role / Scope</th>
+                      <th className="py-3 px-4">Login Key</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Last Active</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-ink/6">
+                    {staffList.map((staff) => (
+                      <tr key={staff.id} className="hover:bg-cream/20 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <div className="font-extrabold text-ink">{staff.name}</div>
+                          <div className="text-[11px] font-mono text-ink/50">{staff.email}</div>
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-ink/75">{staff.role}</td>
+                        <td className="py-3.5 px-4 font-mono">
+                          <div className="inline-flex items-center gap-1.5 bg-cream/70 px-2.5 py-1 rounded-lg ring-1 ring-ink/10 text-ink text-[11px]">
+                            <span>{staff.key}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyStaffKey(staff.key)}
+                              className="text-ink/50 hover:text-ink transition-colors ml-1"
+                              title="Copy key"
+                            >
+                              {copiedKey === staff.key ? (
+                                <Check className="size-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="size-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {staff.status === "active" ? (
+                            <Badge className="bg-emerald-500/10 text-emerald-700 border-emerald-500/20 text-[10px] font-extrabold">
+                              Active
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-coral/10 text-coral border-coral/20 text-[10px] font-extrabold">
+                              Revoked
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-[11px] font-bold text-ink/50">
+                          {staff.lastLoginAt
+                            ? new Date(staff.lastLoginAt).toLocaleDateString("en-NG", {
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "Never"}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs px-2.5 rounded-full"
+                              onClick={() => handleToggleStaffStatus(staff)}
+                            >
+                              {staff.status === "active" ? "Revoke" : "Activate"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-coral hover:bg-coral/10 rounded-full"
+                              onClick={() => handleDeleteStaffKey(staff)}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </Section>
+
+        {/* Modal: Generate Staff Key */}
+        <Dialog open={isStaffModalOpen} onOpenChange={setIsStaffModalOpen}>
+          <DialogContent className="sm:max-w-md bg-white">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 font-display text-xl text-ink">
+                <KeyRound className="size-5 text-coral" />
+                Generate Sales Staff Access Key
+              </DialogTitle>
+              <DialogDescription className="text-xs text-ink/60">
+                Create an isolated access key for your sales representative to sign in at /staff or
+                /crm.
+              </DialogDescription>
+            </DialogHeader>
+
+            {createdKeyStaff ? (
+              <div className="space-y-4 py-2">
+                <div className="p-4 rounded-2xl bg-mint/30 border border-mint/40 text-center space-y-2">
+                  <p className="text-xs font-bold text-ink/75">
+                    Access Key Generated for{" "}
+                    <strong className="text-ink">{createdKeyStaff.name}</strong>
+                  </p>
+                  <div className="text-lg font-mono font-black tracking-wider text-ink bg-white py-2 px-3 rounded-xl border border-ink/10 inline-block shadow-xs">
+                    {createdKeyStaff.key}
+                  </div>
+                  <div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handleCopyStaffKey(createdKeyStaff.key)}
+                      className="gap-1.5 text-xs font-bold"
+                    >
+                      {copiedKey === createdKeyStaff.key ? (
+                        <Check className="size-3.5 text-white" />
+                      ) : (
+                        <Copy className="size-3.5 text-white" />
+                      )}
+                      Copy Access Key
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="text-xs text-ink/70 space-y-1 bg-cream/40 p-3 rounded-xl font-bold">
+                  <p className="text-ink font-extrabold">Dispatch Instructions:</p>
+                  <p>
+                    1. Send the key:{" "}
+                    <code className="font-mono text-coral">{createdKeyStaff.key}</code>
+                  </p>
+                  <p>
+                    2. Staff member visits:{" "}
+                    <code className="font-mono text-ink">https://raffila.com/staff</code>
+                  </p>
+                  <p>3. Select &quot;Sales & Outreach Staff&quot; and enter their key.</p>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsStaffModalOpen(false)}>
+                    Done
+                  </Button>
+                </DialogFooter>
+              </div>
+            ) : (
+              <form onSubmit={handleGenerateKey} className="space-y-3.5 py-2">
+                <div className="space-y-1">
+                  <Label className="text-xs font-extrabold text-ink">Full Name *</Label>
+                  <Input
+                    required
+                    value={newStaffName}
+                    onChange={(e) => setNewStaffName(e.target.value)}
+                    placeholder="e.g. Samuel Adekunle"
+                    className="h-10 text-xs rounded-xl"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs font-extrabold text-ink">Corporate Email *</Label>
+                  <Input
+                    type="email"
+                    required
+                    value={newStaffEmail}
+                    onChange={(e) => setNewStaffEmail(e.target.value)}
+                    placeholder="e.g. samuel@raffila.com"
+                    className="h-10 text-xs rounded-xl"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs font-extrabold text-ink">Role / Territory</Label>
+                  <Input
+                    value={newStaffRole}
+                    onChange={(e) => setNewStaffRole(e.target.value)}
+                    placeholder="e.g. Senior Outreach Rep — Lagos"
+                    className="h-10 text-xs rounded-xl"
+                  />
+                </div>
+
+                <DialogFooter className="pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsStaffModalOpen(false)}
+                    className="text-xs"
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" variant="primary" className="text-xs font-bold gap-1.5">
+                    <Sparkles className="size-3.5" />
+                    Create Key
+                  </Button>
+                </DialogFooter>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
 
         <Section
           icon={SlidersHorizontal}

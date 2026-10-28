@@ -39,7 +39,7 @@ const users: RawDoc[] = [
   {
     id: "u_2",
     data: {
-      displayName: "Tola, \"Q\"",
+      displayName: 'Tola, "Q"',
       email: "tola@example.com",
       createdAt: JAN_2026,
     },

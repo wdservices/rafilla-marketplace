@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Camera,
   Mail,
@@ -10,70 +10,117 @@ import {
   Ticket,
   Users,
   Trophy,
+  Loader2,
+  Gift,
+  Zap,
+  Percent,
+  Sparkles,
+  Award,
+  Crown,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { DashboardAppShell } from "@/components/raffila/dashboard/app-shell";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuthSession } from "@/hooks/useAuthSession";
 
-type Badge = {
+export type Badge = {
+  id: string;
   name: string;
   icon: React.ReactNode;
   desc: string;
   earned: boolean;
   tone: string;
+  perk: string;
+  perkTag: string;
+  progress?: { current: number; target: number; unit: string };
 };
 
 const badges: Badge[] = [
   {
-    name: "Verified account",
-    icon: <ShieldCheck className="size-4" />,
-    desc: "Account created and email confirmed",
+    id: "verified",
+    name: "Verified Account",
+    icon: <ShieldCheck className="size-4.5" />,
+    desc: "Account created and profile confirmed",
     earned: true,
     tone: "bg-mint/30 text-ink ring-mint/40",
+    perk: "Verified participant badge on public draw sheets",
+    perkTag: "Verified Entrant",
   },
   {
-    name: "Phone verified",
-    icon: <Phone className="size-4" />,
-    desc: "Phone number confirmed with OTP",
+    id: "phone",
+    name: "Phone Verified",
+    icon: <Phone className="size-4.5" />,
+    desc: "Mobile number confirmed via secure OTP",
     earned: true,
     tone: "bg-mint/30 text-ink ring-mint/40",
+    perk: "Instant SMS & WhatsApp draw notifications directly to your phone",
+    perkTag: "Direct Alerts",
   },
   {
-    name: "Email verified",
-    icon: <Mail className="size-4" />,
-    desc: "Email address confirmed at signup",
+    id: "email",
+    name: "Email Verified",
+    icon: <Mail className="size-4.5" />,
+    desc: "Primary email address confirmed at signup",
     earned: true,
     tone: "bg-mint/30 text-ink ring-mint/40",
+    perk: "Official digital draw certificate & ticket proof sent to your email",
+    perkTag: "Email Receipts",
   },
   {
-    name: "First entry",
-    icon: <Ticket className="size-4" />,
-    desc: "Entered your very first competition",
+    id: "first_entry",
+    name: "First Entry",
+    icon: <Ticket className="size-4.5" />,
+    desc: "Entered your very first prize competition",
     earned: true,
     tone: "bg-mint/30 text-ink ring-mint/40",
+    perk: "Active entrant badge displayed on your member profile",
+    perkTag: "Active Entrant",
   },
   {
-    name: "50+ entries",
-    icon: <Ticket className="size-4" />,
-    desc: "Reach 50 entries across all competitions",
+    id: "active_contender",
+    name: "Active Contender (10+ Entries)",
+    icon: <Sparkles className="size-4.5" />,
+    desc: "Reach 10 entries across all competitions",
     earned: false,
-    tone: "bg-ink/10 text-ink/50 ring-ink/10",
+    tone: "bg-paper text-ink ring-ink/10",
+    perk: "Early email alert when new prize draws and campaigns launch",
+    perkTag: "Launch Alerts",
+    progress: { current: 3, target: 10, unit: "entries" },
   },
   {
-    name: "10+ referrals",
-    icon: <Users className="size-4" />,
-    desc: "Invite 10 friends who complete signup",
+    id: "dedicated_player",
+    name: "Dedicated Player (50+ Entries)",
+    icon: <Award className="size-4.5" />,
+    desc: "Reach 50 entries across competitions",
     earned: false,
-    tone: "bg-ink/10 text-ink/50 ring-ink/10",
+    tone: "bg-paper text-ink ring-ink/10",
+    perk: "Featured milestone badge displayed in the community circle",
+    perkTag: "Community Badge",
+    progress: { current: 3, target: 50, unit: "entries" },
   },
   {
-    name: "Winner",
-    icon: <Trophy className="size-4" />,
+    id: "social_ambassador",
+    name: "Community Advocate (10+ Referrals)",
+    icon: <Users className="size-4.5" />,
+    desc: "Invite 10 friends who join and play",
+    earned: false,
+    tone: "bg-paper text-ink ring-ink/10",
+    perk: "Custom referral link handle & personal invitation badge",
+    perkTag: "Custom Link",
+    progress: { current: 0, target: 10, unit: "referrals" },
+  },
+  {
+    id: "grand_winner",
+    name: "Winner's Circle",
+    icon: <Trophy className="size-4.5" />,
     desc: "Win at least one Raffila competition prize",
     earned: false,
-    tone: "bg-ink/10 text-ink/50 ring-ink/10",
+    tone: "bg-paper text-ink ring-ink/10",
+    perk: "Permanent feature in the verified Winners Showcase gallery",
+    perkTag: "Winners Showcase",
+    progress: { current: 0, target: 1, unit: "win" },
   },
 ];
 
@@ -95,6 +142,57 @@ export function DashboardProfilePage() {
   const [otpSent, setOtpSent] = useState(false);
   const [otpVerified, setOtpVerified] = useState(false);
 
+  // Avatar Upload State & Ref
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || "");
+
+  useEffect(() => {
+    if (user?.avatarUrl) setAvatarUrl(user.avatarUrl);
+  }, [user?.avatarUrl]);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image file (PNG, JPG, WEBP).");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Image file must be under 8MB.");
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const { uploadToCloudinary } = await import("@/lib/cloudinary-upload");
+      const result = await uploadToCloudinary(file);
+      const newUrl = result.secure_url;
+      setAvatarUrl(newUrl);
+
+      const uid = user?.id?.replace("firebase_", "");
+      if (uid) {
+        const { createUserProfile } = await import("@/lib/firebase-auth");
+        await createUserProfile(uid, { avatarUrl: newUrl });
+      }
+
+      const { setFirebaseSession } = await import("@/lib/auth-store");
+      if (user) {
+        setFirebaseSession({
+          ...user,
+          avatarUrl: newUrl,
+        });
+      }
+      toast.success("Profile picture updated successfully!");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to upload image. Please try again.");
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   useEffect(() => {
     const uid = user?.id?.replace("firebase_", "");
     if (!uid) return;
@@ -108,6 +206,9 @@ export function DashboardProfilePage() {
           dob: (profile["dob"] as string) || f.dob,
           username: (profile["handle"] as string) || f.username,
         }));
+        if (profile["avatarUrl"] && typeof profile["avatarUrl"] === "string") {
+          setAvatarUrl(profile["avatarUrl"]);
+        }
       }),
     );
   }, [user?.id]);
@@ -185,21 +286,42 @@ export function DashboardProfilePage() {
           <div className="px-6 pb-6 sm:px-8 sm:pb-8">
             <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
               <div className="flex flex-col gap-4 sm:-mt-12 sm:flex-row sm:items-end sm:gap-5">
-                <label className="relative mx-auto block size-[108px] shrink-0 cursor-pointer group sm:mx-0 sm:size-28">
+                <div
+                  onClick={() => !uploadingImage && fileInputRef.current?.click()}
+                  className="relative mx-auto block size-[108px] shrink-0 cursor-pointer group sm:mx-0 sm:size-28"
+                  title="Click to upload profile picture"
+                >
                   <div className="absolute inset-0 overflow-hidden rounded-3xl bg-lilac/30 ring-4 ring-white shadow-[0_12px_30px_-14px_rgba(0,0,0,0.35)]">
-                    {user?.avatarUrl ? (
-                      <img src={user.avatarUrl} alt="" className="size-full object-cover" />
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt="" className="size-full object-cover" />
                     ) : (
                       <div className="grid h-full w-full place-items-center font-display text-5xl font-extrabold text-ink sm:text-4xl">
                         {user?.avatarMonogram || "U"}
                       </div>
                     )}
+                    {uploadingImage && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 backdrop-blur-xs text-white">
+                        <Loader2 className="size-6 animate-spin text-white" />
+                        <span className="mt-1 text-[9px] font-extrabold uppercase">Uploading</span>
+                      </div>
+                    )}
                   </div>
                   <span className="absolute bottom-1 right-1 grid size-8 place-items-center rounded-2xl bg-coral text-paper shadow-[0_6px_14px_-6px_var(--coral)] ring-2 ring-white group-hover:scale-105 transition-transform">
-                    <Camera className="size-3.5" />
+                    {uploadingImage ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Camera className="size-3.5" />
+                    )}
                   </span>
-                  <input type="file" accept="image/*" className="hidden" onChange={() => {}} />
-                </label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageUpload}
+                    disabled={uploadingImage}
+                  />
+                </div>
 
                 <div className="text-center sm:text-left sm:pb-2">
                   <h2 className="font-display text-2xl font-extrabold text-ink sm:text-[1.7rem]">
@@ -220,8 +342,22 @@ export function DashboardProfilePage() {
 
               <div className="flex flex-col items-center gap-2 sm:items-end sm:pb-2">
                 <p className="text-xs font-bold text-ink/45">Member since · 14 Jan 2026</p>
-                <Button variant="outline" size="sm">
-                  <Camera className="size-3.5" /> Edit profile picture
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingImage}
+                  className="cursor-pointer"
+                >
+                  {uploadingImage ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" /> Uploading…
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="size-3.5" /> Edit profile picture
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
@@ -316,54 +452,135 @@ export function DashboardProfilePage() {
         <div className="rounded-[24px] bg-white p-6 ring-1 ring-ink/5 sm:p-8">
           <div className="flex items-end justify-between gap-4 flex-wrap">
             <div>
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-ink/45">
-                Your Raffila badges
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-coral">
+                Client Loyalty & Achievements
               </p>
-              <h2 className="mt-1.5 font-display text-xl font-extrabold text-ink">
-                User tiers & achievements
+              <h2 className="mt-1.5 font-display text-2xl font-extrabold text-ink">
+                Raffila Badges & Milestones
               </h2>
             </div>
-            <p className="max-w-sm text-xs font-bold leading-relaxed text-ink/50">
-              Badges celebrate your activity. Earn more to unlock future perks and features.
+            <p className="max-w-md text-xs font-bold leading-relaxed text-ink/55">
+              Badges celebrate your activity on Raffila, providing verified draw credentials,
+              priority alerts, and community recognition.
             </p>
           </div>
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Active Status Summary Banner */}
+          <div className="mt-5 rounded-2xl bg-gradient-to-r from-mint/25 via-lemon/20 to-mint/25 p-4 ring-1 ring-mint/25 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="grid size-9 place-items-center rounded-xl bg-forest text-white shadow-xs">
+                <ShieldCheck className="size-4.5 text-cream" />
+              </span>
+              <div>
+                <p className="text-xs font-extrabold text-ink">
+                  4 Active Badges Unlocked on Your Account
+                </p>
+                <p className="text-[11px] font-bold text-ink/55">
+                  Verified Entrant • Direct SMS Alerts • Digital Draw Certificates • Active Player
+                  Badge
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[11px] font-extrabold text-ink ring-1 ring-ink/10 shadow-xs">
+              <Sparkles className="size-3.5 text-forest" /> Badges Active
+            </span>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {badges.map((b) => (
               <div
-                key={b.name}
+                key={b.id}
                 className={cn(
-                  "relative rounded-[24px] p-5 ring-1 transition-all duration-200 hover:shadow-md",
-                  b.tone,
+                  "relative flex flex-col justify-between rounded-[24px] p-5 ring-1 transition-all duration-200 hover:shadow-md",
+                  b.earned ? "bg-mint/20 ring-mint/30" : "bg-paper/70 ring-ink/5",
                 )}
               >
-                <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div
+                      className={cn(
+                        "relative grid size-11 place-items-center rounded-2xl ring-1",
+                        b.earned
+                          ? "bg-white text-forest ring-mint/30 shadow-xs"
+                          : "bg-white/80 text-ink/40 ring-ink/10",
+                      )}
+                    >
+                      {b.icon}
+                      {!b.earned && (
+                        <div className="absolute -bottom-1 -right-1 grid size-4 place-items-center rounded-full bg-white ring-1 ring-ink/10">
+                          <Lock className="size-2.5 text-ink/50" />
+                        </div>
+                      )}
+                    </div>
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold ring-1",
+                        b.earned
+                          ? "bg-mint/40 text-ink ring-mint/30"
+                          : "bg-white text-ink/60 ring-ink/10",
+                      )}
+                    >
+                      {b.earned ? (
+                        <>
+                          <Check className="size-3 text-forest" /> EARNED
+                        </>
+                      ) : (
+                        "LOCKED"
+                      )}
+                    </span>
+                  </div>
+
+                  <h3 className="mt-4 font-display text-[15px] font-extrabold text-ink leading-tight">
+                    {b.name}
+                  </h3>
+                  <p className="mt-1 text-xs font-medium leading-relaxed text-ink/60">{b.desc}</p>
+                </div>
+
+                {/* Real Perk Box */}
+                <div className="mt-4 pt-3 border-t border-ink/5">
                   <div
                     className={cn(
-                      "relative grid size-11 place-items-center rounded-2xl ring-1",
-                      b.earned ? "bg-white ring-ink/10" : "bg-white/60 ring-ink/10",
-                    )}
-                  >
-                    {b.icon}
-                    {!b.earned && (
-                      <div className="absolute -bottom-1 -right-1 grid size-4 place-items-center rounded-full bg-white ring-1 ring-ink/10">
-                        <Lock className="size-2.5 text-ink/50" />
-                      </div>
-                    )}
-                  </div>
-                  <span
-                    className={cn(
-                      "inline-flex rounded-full px-2 py-0.5 text-[10px] font-extrabold ring-1",
+                      "rounded-xl p-2.5 ring-1",
                       b.earned
-                        ? "bg-white text-ink ring-ink/10"
-                        : "bg-white/70 text-ink/60 ring-ink/10",
+                        ? "bg-white/90 ring-mint/25 text-ink"
+                        : "bg-cream/50 ring-ink/5 text-ink/70",
                     )}
                   >
-                    {b.earned ? "EARNED" : "LOCKED"}
-                  </span>
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-coral flex items-center gap-1">
+                        <Gift className="size-3 text-coral" /> Real Perk
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded-full px-1.5 py-0.2 text-[9px] font-extrabold uppercase",
+                          b.earned ? "bg-mint/40 text-forest" : "bg-ink/10 text-ink/50",
+                        )}
+                      >
+                        {b.perkTag}
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold leading-snug">{b.perk}</p>
+                  </div>
+
+                  {b.progress && !b.earned && (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between text-[10px] font-bold text-ink/50 mb-1">
+                        <span>Progress</span>
+                        <span>
+                          {b.progress.current} / {b.progress.target} {b.progress.unit}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full bg-ink/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-coral rounded-full"
+                          style={{
+                            width: `${Math.min(100, (b.progress.current / b.progress.target) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <h3 className="mt-4 font-display text-[15px] font-extrabold text-ink">{b.name}</h3>
-                <p className="mt-1 text-xs font-bold leading-relaxed text-ink/60">{b.desc}</p>
               </div>
             ))}
           </div>

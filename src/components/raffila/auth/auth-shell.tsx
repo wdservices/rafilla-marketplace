@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 import { ShieldCheck, BadgeCheck, WalletCards, Check } from "lucide-react";
 import { cn, formatNaira } from "@/lib/utils";
 import { usePrizesPaidOut } from "@/hooks/usePrizesPaidOut";
@@ -107,7 +108,11 @@ export function AuthShell({ children, variant = "login" }: AuthShellProps) {
   return (
     <div className="min-h-screen bg-paper flex flex-col lg:flex-row">
       <div className="lg:hidden px-4 pt-6 pb-2">
-        <div className="flex items-center gap-2">
+        <Link
+          to="/"
+          className="inline-flex items-center gap-2 transition-opacity hover:opacity-85"
+          aria-label="Return to Raffila homepage"
+        >
           <img
             src="/Raffila-logo.png"
             alt=""
@@ -118,7 +123,7 @@ export function AuthShell({ children, variant = "login" }: AuthShellProps) {
           <span className="font-display text-lg font-extrabold tracking-tight text-ink">
             Raffila
           </span>
-        </div>
+        </Link>
       </div>
 
       <div className="lg:hidden px-4 pb-6">
@@ -126,17 +131,23 @@ export function AuthShell({ children, variant = "login" }: AuthShellProps) {
       </div>
 
       <div className="hidden lg:flex w-[45%] shrink-0 flex-col h-screen sticky top-0 rounded-l-[32px] bg-cream p-7 xl:p-9 ring-1 ring-ink/5 overflow-hidden">
-        <div className="flex items-center gap-2 mb-5">
-          <img
-            src="/Raffila-logo.png"
-            alt=""
-            className="size-10 shrink-0 rounded-2xl shadow-sm"
-            width={40}
-            height={40}
-          />
-          <span className="font-display text-2xl font-extrabold tracking-tight text-ink">
-            Raffila
-          </span>
+        <div className="mb-5">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-2 transition-opacity hover:opacity-85"
+            aria-label="Return to Raffila homepage"
+          >
+            <img
+              src="/Raffila-logo.png"
+              alt=""
+              className="size-10 shrink-0 rounded-2xl shadow-sm"
+              width={40}
+              height={40}
+            />
+            <span className="font-display text-2xl font-extrabold tracking-tight text-ink">
+              Raffila
+            </span>
+          </Link>
         </div>
 
         <ProductCarousel />

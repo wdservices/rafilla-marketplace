@@ -55,7 +55,7 @@ export function SiteFooter() {
             Terms
           </Link>
           <Link to="/become-a-partner" className="hover:text-cream break-words">
-            Partners
+            Become a partner
           </Link>
           <Link to="/faq" className="hover:text-cream break-words">
             FAQ
@@ -98,6 +98,9 @@ export function SiteFooter() {
           </Link>
           <Link to="/dashboard/entries" className="hover:text-cream break-words">
             My Entries
+          </Link>
+          <Link to="/staff" className="hover:text-cream break-words">
+            Staff Portal
           </Link>
         </div>
       </div>

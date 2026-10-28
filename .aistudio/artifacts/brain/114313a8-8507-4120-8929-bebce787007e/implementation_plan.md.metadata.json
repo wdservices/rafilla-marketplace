@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for creating a comprehensive master operations and feature manual for Rafilla, including step-by-step feature guides, third-party credentials, administrative workflows, draw procedures, and downloadable DOCX and Markdown files.",
-  "updatedAt": "2026-10-24T23:25:18.947523269Z",
+  "summary": "Implementation plan for the Unified Staff & Admin Gateway, moving Key Generation into Admin Settings, and deploying the isolated standalone Sales CRM.",
+  "updatedAt": "2026-10-27T12:40:38.761439897Z",
   "requestFeedback": true,
   "userFacing": true
 }

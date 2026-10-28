@@ -27,15 +27,21 @@ function AuthPage() {
       ? (rawMode as AuthMode)
       : undefined;
 
+  const rawRef = search["ref"] ? String(search["ref"]) : undefined;
   const rawTab = search["tab"];
-  const urlTab: AuthTab = rawTab === "register" ? "register" : "login";
+  const urlTab: AuthTab = rawTab === "register" || Boolean(rawRef) ? "register" : "login";
   const [tab, setTab] = useState<AuthTab>(urlTab);
 
   useEffect(() => {
-    if (rawTab === "register" || rawTab === "login") {
+    if (rawRef) {
+      import("@/lib/referral-capture").then(({ saveReferralCode }) => {
+        saveReferralCode(rawRef);
+      });
+      setTab("register");
+    } else if (rawTab === "register" || rawTab === "login") {
       setTab(rawTab);
     }
-  }, [rawTab]);
+  }, [rawTab, rawRef]);
 
   const handleTabChange = (nextTab: AuthTab) => {
     setTab(nextTab);

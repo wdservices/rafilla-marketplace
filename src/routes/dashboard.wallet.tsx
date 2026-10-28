@@ -1,4 +1,4 @@
-﻿import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { DashboardWalletPage } from "@/components/raffila/dashboard";
 import { fetchFeatureFlags } from "@/lib/platform-config";
 
@@ -6,13 +6,8 @@ const canonicalBase = "https://raffila.com";
 const ogImageDefault = "https://raffila.com/og-default.png";
 
 export const Route = createFileRoute("/dashboard/wallet")({
-  // Wallet kill-switch: Admin → Settings → Feature availability.
-  // When wallet funding is off, the page (and its nav entry) disappears.
   beforeLoad: async () => {
-    const flags = await fetchFeatureFlags().catch(() => null);
-    if (flags && flags["wallet"] === false) {
-      throw redirect({ to: "/dashboard" });
-    }
+    throw redirect({ to: "/dashboard/entries" });
   },
   head: () => {
     const pathname = "/dashboard/wallet";

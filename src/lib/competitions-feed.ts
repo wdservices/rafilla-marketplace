@@ -126,17 +126,58 @@ export function isCompetitionConcluded(
 ): boolean {
   if (!c) return false;
   const rawStatus = String((c as any).status ?? "").toUpperCase();
-  if (rawStatus === "COMPLETED" || rawStatus === "WINNER_SELECTED" || rawStatus === "CONCLUDED") {
+  if (
+    rawStatus === "COMPLETED" ||
+    rawStatus === "WINNER_SELECTED" ||
+    rawStatus === "CONCLUDED" ||
+    rawStatus === "CLOSED" ||
+    rawStatus === "DRAWN" ||
+    rawStatus === "ENDED"
+  ) {
     return true;
   }
-  if ((c as any).winningTicketNumber != null || (c as any).winnerTicketNumber != null) {
+  if (
+    (c as any).winningTicketNumber != null ||
+    (c as any).winnerTicketNumber != null ||
+    (c as any).winnerTicket != null
+  ) {
     return true;
   }
-  if ((c as any).drawCompletedAt != null) {
+  if (
+    (c as any).drawCompletedAt != null ||
+    (c as any).drawnAt != null ||
+    (c as any).drawConcludedAt != null
+  ) {
     return true;
   }
-  if ((c as any).entriesClosed && ((c as any).winnerName || (c as any).winnerDisplayName)) {
+  if (
+    (c as any).entriesClosed &&
+    ((c as any).winnerName || (c as any).winnerDisplayName || (c as any).winnerId)
+  ) {
     return true;
+  }
+  if (
+    (c as any).winnerName ||
+    (c as any).winnerDisplayName ||
+    (c as any).winnerId ||
+    (c as any).winner
+  ) {
+    return true;
+  }
+  // Check if marked concluded locally for instant client-side update
+  if (typeof window !== "undefined") {
+    try {
+      const slug = String((c as any).slug ?? (c as any).id ?? "");
+      if (
+        slug &&
+        (localStorage.getItem(`raffila_concluded_${slug}`) === "true" ||
+          localStorage.getItem(`raffila_draw_completed_${slug}`) === "true")
+      ) {
+        return true;
+      }
+    } catch {
+      // ignore
+    }
   }
   return false;
 }
@@ -176,7 +217,10 @@ export function docToCompetition(
   const closesMs = toMs(data["closes"] ?? data["drawDate"]);
   const daysUntilClose = closesMs ? Math.max(0, Math.ceil((closesMs - Date.now()) / 86400000)) : 30;
   const images = Array.isArray(data["images"]) ? (data["images"] as string[]) : [];
-  const image = resolvePrizeImage(data["image"] ?? images[0] ?? "", `${slug} ${title} ${rawCategory}`);
+  const image = resolvePrizeImage(
+    data["image"] ?? images[0] ?? "",
+    `${slug} ${title} ${rawCategory}`,
+  );
 
   const winnerDisplayNameRaw = data["winnerDisplayName"] ?? data["winnerName"] ?? null;
   return {

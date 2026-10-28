@@ -39,12 +39,6 @@ const navItems: NavItem[] = [
     group: "Account",
   },
   {
-    label: "Wallet",
-    icon: <Wallet className="size-5" />,
-    to: "/dashboard/wallet",
-    group: "Account",
-  },
-  {
     label: "Entries",
     icon: <Ticket className="size-5" />,
     to: "/dashboard/entries",
@@ -68,12 +62,6 @@ const navItems: NavItem[] = [
     to: "/dashboard/profile",
     group: "Settings",
   },
-  {
-    label: "Security",
-    icon: <ShieldCheck className="size-5" />,
-    to: "/dashboard/security",
-    group: "Settings",
-  },
 ];
 
 const bottomNavItems: NavItem[] = [
@@ -82,12 +70,6 @@ const bottomNavItems: NavItem[] = [
     label: "Competitions",
     icon: <Trophy className="size-5" />,
     to: "/dashboard/competitions",
-    group: "Account",
-  },
-  {
-    label: "Wallet",
-    icon: <Wallet className="size-5" />,
-    to: "/dashboard/wallet",
     group: "Account",
   },
   {

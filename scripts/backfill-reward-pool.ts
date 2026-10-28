@@ -54,9 +54,7 @@ function initAdmin() {
   if (!projectId || !clientEmail || !privateKey) {
     throw new Error("Firebase Admin credentials are not set (.env / environment).");
   }
-  return getFirestore(
-    initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) }),
-  );
+  return getFirestore(initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) }));
 }
 
 const DEFAULT_PCT = 5;
@@ -68,8 +66,7 @@ async function main() {
   const configSnap = await db.collection("platformSettings").doc("raffila_config").get();
   const cfg = configSnap.data() ?? {};
   const pctRaw = Number(
-    (cfg["rewardPool"] as Record<string, unknown> | undefined)?.["contributionPct"] ??
-      DEFAULT_PCT,
+    (cfg["rewardPool"] as Record<string, unknown> | undefined)?.["contributionPct"] ?? DEFAULT_PCT,
   );
   const pct = Number.isFinite(pctRaw) ? Math.min(100, Math.max(0, pctRaw)) : DEFAULT_PCT;
 

@@ -1,4 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { CompetitionRulesPage } from "@/components/raffila/public-pages";
 
 const canonicalBase = "https://raffila.com";
@@ -28,7 +28,7 @@ export const Route = createFileRoute("/competition-rules")({
         url: canonicalBase,
       },
       datePublished: "2025-01-01",
-      dateModified: new Date().toISOString().split("T")[0],
+      dateModified: "2025-10-26",
       mainEntityOfPage: canonical,
       image: ogImageDefault,
     });

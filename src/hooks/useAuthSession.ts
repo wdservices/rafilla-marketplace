@@ -34,10 +34,13 @@ import {
 } from "@/lib/user-validation";
 
 export function useAuthSession() {
-  const [session, setSession] = useState<Session>(getSession());
+  const [mounted, setMounted] = useState(false);
+  const [session, setSession] = useState<Session>(null);
   const location = useLocation();
 
   useEffect(() => {
+    setMounted(true);
+    setSession(getSession());
     const unsub = subscribe(setSession);
     const unsubFirebase = initFirebaseAuthListener();
     return () => {
@@ -51,6 +54,7 @@ export function useAuthSession() {
     role: session?.user.role ?? null,
     isAuthenticated: !!session,
     session,
+    isMounted: mounted,
   };
 }
 

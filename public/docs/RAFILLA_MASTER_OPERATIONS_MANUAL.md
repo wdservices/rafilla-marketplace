@@ -330,5 +330,53 @@ A concluded competition is visible **only** in:
 
 ---
 
+## 10. SALES CRM & OUTREACH STAFF ACCESS MANAGEMENT
+
+### 10.1 Sales Staff Architecture & Role Separation
+
+To protect platform integrity and financial operations:
+
+- **Isolated CRM Dashboard**: Sales representatives **do not** have access to the Super Admin Dashboard (`/admin`), financial payout queues, fraud triggers, or master platform settings.
+- **Dedicated Staff Portal**: Sales staff log in directly at **`/crm`** using their individual **Sales Access Key** (format: `RAF-SALES-XXXX-XXXX`).
+- **No Password Management Friction**: Admins generate and revoke keys on demand without creating full Firebase admin accounts.
+
+### 10.2 How the Admin Creates a Sales Staff Login
+
+1. Log into the Super Admin Dashboard at **`/admin`** using the admin credentials (`Raffilamarketplace@gmail.com` | `Admin@26`).
+2. In the sidebar under **OPERATIONS**, click **CRM & Sales** (`/admin/crm`).
+3. Click the **Generate Staff Key** button in the top right.
+4. Fill in the staff member's details:
+   - **Full Name**: e.g. `Samuel Adekunle`
+   - **Email Address**: e.g. `samuel@raffila.com`
+   - **Role / Territory**: e.g. `Senior Outreach Executive — Lagos`
+5. Click **Create Key**. The system automatically generates a unique, cryptographically secure key (e.g. `RAF-SALES-4921-8840`).
+6. Click **Copy Key** and dispatch it securely to the sales representative along with the portal URL (`https://raffila.com/crm`).
+
+### 10.3 How Sales Personnel Sign In and Log Calls
+
+1. The sales representative navigates to **`/crm`**.
+2. They input their unique **Staff Access Key** and click **Sign In to Sales CRM**.
+3. Upon authentication, their personalized Sales Dashboard opens, displaying:
+   - **My Logged Calls**, **Conversions**, and **Pending Follow-ups**.
+   - **Call Activity History**: Complete audit trail of client interactions.
+   - **Client Leads & VIPs**: Directory with direct Click-to-Call (`tel:`) and WhatsApp (`wa.me`) shortcuts.
+   - **Sales Script & Talking Points**: Reference notes on active high-value prizes (Apartments, SUVs, Tech Bundles) and answers to common trust objections.
+4. **Logging an Outreach Call**:
+   - Click **Log Outreach Call** or the **Log Call** action next to any lead.
+   - Fill in: Client Name, Phone Number, Call Type (Outbound Pitch, WhatsApp, Ticket Inquiry, VIP Concierge, Winner Support), and Outcome (Converted, Interested, Follow-up, No Answer, Not Interested).
+   - Add concise notes and select a follow-up callback date if required.
+   - Click **Save Call Record**.
+
+### 10.4 Revoking or Re-activating Staff Access
+
+If a sales representative departs or changes roles:
+
+1. Navigate to `/admin/crm` under the **Sales Staff Keys** tab.
+2. Locate the representative in the table.
+3. Click **Revoke** to immediately invalidate their key. Any active session on `/crm` is terminated automatically.
+4. Click **Activate** to restore access, or the **Trash** icon to permanently delete the key.
+
+---
+
 _© 2026 Raffila Ltd. All rights reserved. Registered in the Federal Republic of Nigeria._  
 _This document contains proprietary operational procedures for Raffila digital assets._

@@ -94,10 +94,7 @@ export function CheckoutAuthDialog({
                   onSuccess={onAuthenticated}
                 />
               ) : (
-                <RegisterForm
-                  onSwitchToLogin={() => setTab("login")}
-                  onSuccess={onAuthenticated}
-                />
+                <RegisterForm onSwitchToLogin={() => setTab("login")} onSuccess={onAuthenticated} />
               )}
             </div>
           </div>

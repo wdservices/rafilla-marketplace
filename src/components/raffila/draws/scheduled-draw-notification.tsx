@@ -15,9 +15,14 @@ import { parseCloseMs } from "@/lib/draw-system";
 import { cn } from "@/lib/utils";
 
 export function ScheduledDrawNotification() {
+  const [mounted, setMounted] = useState(false);
   const { competitions } = useCompetitions();
   const location = useLocation();
   const [dismissedSlugs, setDismissedSlugs] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Do not show on private pages or on the draw page itself
   const pathname = location.pathname;
@@ -71,7 +76,7 @@ export function ScheduledDrawNotification() {
     return competitions.find((c) => c.status === "LIVE" && !dismissedSlugs.has(c.slug)) ?? null;
   }, [competitions, dismissedSlugs]);
 
-  if (isExcludedPage || !todayComp) return null;
+  if (!mounted || isExcludedPage || !todayComp) return null;
 
   const handleDismiss = () => {
     setDismissedSlugs((prev) => new Set([...prev, todayComp.slug]));
@@ -88,7 +93,10 @@ export function ScheduledDrawNotification() {
     if ((todayComp.status as string) === "DRAW_READY") return "starting_soon";
     if (todayComp.status === "COMPLETED" || (todayComp.status as string) === "WINNER_SELECTED")
       return "completed";
-    if ((todayComp.status as string) === "CANCELLED" || (todayComp.status as string) === "SUSPENDED")
+    if (
+      (todayComp.status as string) === "CANCELLED" ||
+      (todayComp.status as string) === "SUSPENDED"
+    )
       return "postponed";
     return "today";
   })();

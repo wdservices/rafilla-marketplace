@@ -309,6 +309,18 @@ export function LoginForm({ onSwitchToRegister, onSuccess }: LoginFormProps = {}
             Create one
           </Link>
         </p>
+
+        <div className="pt-2 text-center border-t border-ink/5 mt-2">
+          <Link
+            to="/staff"
+            className="text-xs font-semibold text-ink/45 hover:text-ink/80 transition-colors"
+          >
+            Staff or Administrator?{" "}
+            <span className="underline decoration-ink/30 underline-offset-2">
+              Access Staff Portal →
+            </span>
+          </Link>
+        </div>
       </form>
     </div>
   );

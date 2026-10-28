@@ -46,18 +46,18 @@ describe("referralCommissionKobo", () => {
 });
 
 describe("referralCommissionSplit", () => {
-  it("splits a ₦10,000 order across the 5 default levels", () => {
-    // ₦10,000 = 1,000,000 kobo → 10/5/3/2/1%
+  it("splits a ₦10,000 order across the 3 default levels", () => {
+    // ₦10,000 = 1,000,000 kobo → 10/6/4% (3-level model)
     const split = referralCommissionSplit(1_000_000, DEFAULT_REFERRAL_RATES);
-    expect(split.map((s) => s.level)).toEqual([1, 2, 3, 4, 5]);
-    expect(split.map((s) => s.amountKobo)).toEqual([100_000, 50_000, 30_000, 20_000, 10_000]);
+    expect(split.map((s) => s.level)).toEqual([1, 2, 3]);
+    expect(split.map((s) => s.amountKobo)).toEqual([100_000, 60_000, 40_000]);
     expect(split[0]!.ratePct).toBe(10);
   });
 
   it("skips levels whose rate is zero", () => {
-    const rates = { l1: 10, l2: 0, l3: 3, l4: 0, l5: 1 };
+    const rates = { l1: 10, l2: 0, l3: 3, l4: 0, l5: 0 };
     const split = referralCommissionSplit(100_000, rates);
-    expect(split.map((s) => s.level)).toEqual([1, 3, 5]);
+    expect(split.map((s) => s.level)).toEqual([1, 3]);
   });
 });
 
@@ -68,18 +68,18 @@ describe("normalizeReferralRates", () => {
       l1: DEFAULT_REFERRAL_RATES.l1,
       l2: DEFAULT_REFERRAL_RATES.l2,
       l3: 100,
-      l4: DEFAULT_REFERRAL_RATES.l4,
-      l5: DEFAULT_REFERRAL_RATES.l5,
+      l4: 0,
+      l5: 0,
     });
   });
 
   it("accepts admin-configured numbers", () => {
-    expect(normalizeReferralRates({ l1: 12, l2: 6, l3: 4, l4: 2, l5: 1 })).toEqual({
+    expect(normalizeReferralRates({ l1: 12, l2: 6, l3: 4 })).toEqual({
       l1: 12,
       l2: 6,
       l3: 4,
-      l4: 2,
-      l5: 1,
+      l4: 0,
+      l5: 0,
     });
   });
 });
@@ -128,7 +128,7 @@ describe("ticketQrValue", () => {
 describe("referralInviteUrl", () => {
   it("joins origin and invite path without duplicate slashes", () => {
     expect(referralInviteUrl("tunmise-ade", "https://raffila.com/")).toBe(
-      "https://raffila.com/invite/TUNMISE-ADE",
+      "https://raffila.com/auth?tab=register&ref=TUNMISE-ADE",
     );
   });
 });

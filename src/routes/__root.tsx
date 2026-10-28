@@ -175,7 +175,11 @@ function RootComponent() {
     pathname === "/admin" ||
     pathname.startsWith("/admin/") ||
     pathname === "/partner" ||
-    pathname.startsWith("/partner/");
+    pathname.startsWith("/partner/") ||
+    pathname === "/crm" ||
+    pathname.startsWith("/crm/") ||
+    pathname === "/staff" ||
+    pathname.startsWith("/staff/");
 
   return (
     <QueryClientProvider client={queryClient}>

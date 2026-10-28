@@ -178,8 +178,10 @@ export function closeCart(): void {
   emitDrawer();
 }
 
+const EMPTY_CART_SNAPSHOT: CartItem[] = [];
+
 export function useCartItems(): CartItem[] {
-  return useSyncExternalStore(subscribeItems, getCartItems, getCartItems);
+  return useSyncExternalStore(subscribeItems, getCartItems, () => EMPTY_CART_SNAPSHOT);
 }
 
 export function useCartCount(): number {
@@ -191,7 +193,7 @@ export function useCartOpen(): boolean {
   return useSyncExternalStore(
     subscribeDrawer,
     () => drawerOpen,
-    () => drawerOpen,
+    () => false,
   );
 }
 

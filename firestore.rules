@@ -146,11 +146,23 @@ service cloud.firestore {
         && request.resource.data.get("inviteOpens", null) == resource.data.get("inviteOpens", null);
     }
 
+    // CRM staff activities (call duration, outcome, notes, lead details)
+    match /crm_activities/{activityId} {
+      allow read, create, update: if true;
+      allow delete: if isAdmin();
+    }
+
+    function crmLeadFieldsOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(["leadStatus", "lastContacted", "assignedTo"]);
+    }
+
     match /users/{userId} {
-      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow read: if true;
       allow create: if request.auth != null && (request.auth.uid == userId || isAdmin());
-      allow update: if request.auth != null
-        && (request.auth.uid == userId || isAdmin())
+      allow update: if (
+          (request.auth != null && (request.auth.uid == userId || isAdmin())) ||
+          crmLeadFieldsOnly()
+        )
         && walletUnchanged()
         && referralUnchanged();
       allow delete: if request.auth != null && (request.auth.uid == userId || isAdmin());

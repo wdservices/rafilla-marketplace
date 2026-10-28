@@ -3160,22 +3160,22 @@ function HowItWorksPreview() {
         />
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {[
-            { title: "1. Choose a prize", desc: "Browse first — no money asked up front." },
-            { title: "2. Choose entries", desc: "Price and total shown clearly before payment." },
+            { title: "Choose a prize", desc: "Browse first — no money asked up front." },
+            { title: "Choose entries", desc: "Price and total shown clearly before payment." },
             {
-              title: "3. Create account",
+              title: "Create account",
               desc: "Phone/OTP prominently, email/Google also available.",
             },
             {
-              title: "4. Pay securely",
+              title: "Pay securely",
               desc: "Direct payment and/or wallet, subject to provider review.",
             },
             {
-              title: "5. Get confirmation",
+              title: "Get confirmation",
               desc: "Entry numbers and draw date shown immediately.",
             },
             {
-              title: "6. Follow result",
+              title: "Follow result",
               desc: "Simple My Entries screen + verifiable draw result.",
             },
           ].map((step, index) => (

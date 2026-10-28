@@ -1,4 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { HowItWorksPage } from "@/components/raffila/public-pages";
 
 const canonicalBase = "https://raffila.com";
@@ -10,7 +10,7 @@ export const Route = createFileRoute("/how-it-works")({
     const canonical = `${canonicalBase}${pathname}`;
     const title = "How it works — Enter → Draw → Win · Raffila";
     const description =
-      "How Raffila works: create account, fund wallet, pick competition, buy tickets, follow live verified draws, claim your prize. Step-by-step process, fully transparent. raffila.com";
+      "How Raffila works: browse competitions, pick entries, checkout securely via Paystack, follow live verified draws, claim your prize. Step-by-step process, fully transparent. raffila.com";
 
     const howArticleJsonLd = JSON.stringify({
       "@context": "https://schema.org",
@@ -28,11 +28,11 @@ export const Route = createFileRoute("/how-it-works")({
         url: canonicalBase,
       },
       datePublished: "2025-01-01",
-      dateModified: new Date().toISOString().split("T")[0],
+      dateModified: "2025-10-26",
       mainEntityOfPage: canonical,
       image: ogImageDefault,
       articleBody:
-        "Step 1: Create & verify your Raffila account. Step 2: Fund your wallet securely. Step 3: Browse and enter competitions. Step 4: Watch live verified draw. Step 5: Claim prize if you win.",
+        "Step 1: Browse and select competitions. Step 2: Choose entries. Step 3: Checkout securely. Step 4: Watch live verified draw. Step 5: Claim prize if you win.",
     });
 
     return {
