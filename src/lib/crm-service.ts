@@ -314,6 +314,52 @@ export async function reactivateStaffAccess(key: string): Promise<boolean> {
 }
 
 /**
+ * Firestore-backed: permanently delete a staff assignment. Only called once
+ * the member is already revoked (the admin must revoke first). Removes every
+ * staffKeys doc carrying this key, drops the local mirror copy, and returns
+ * the user to the customer role in case a staff role was left behind.
+ */
+export async function deleteStaffAssignment(
+  key: string,
+  localId: string,
+): Promise<boolean> {
+  // Drop the local mirror copy (match by id OR key so stale rows clear too).
+  try {
+    const list = getStaffList().filter((s) => s.id !== localId && s.key !== key);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(STORAGE_KEYS.STAFF, JSON.stringify(list));
+    }
+  } catch {
+    // localStorage unavailable — Firestore is the source of truth anyway.
+  }
+
+  try {
+    const snap = await getDocs(
+      query(collection(db, "staffKeys"), where("key", "==", key)),
+    );
+    if (snap.empty) return true; // already gone — nothing left to delete
+
+    const batch = writeBatch(db);
+    for (const d of snap.docs) {
+      const data = d.data() as Record<string, unknown>;
+      const userId = data["userId"] as string;
+      batch.delete(d.ref);
+      if (userId) {
+        batch.update(doc(db, "users", userId), {
+          role: "user",
+          staffKeyStatus: "revoked",
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+    await batch.commit();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Fetch the signed-in staff member's own assignment. Requires an
  * authenticated Firebase session — rules allow a user to read their own key.
  */

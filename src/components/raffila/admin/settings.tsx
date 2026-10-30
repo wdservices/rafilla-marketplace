@@ -58,6 +58,7 @@ import {
   fetchStaffAssignments,
   revokeStaffAccess,
   reactivateStaffAccess,
+  deleteStaffAssignment,
   StaffMember,
 } from "@/lib/crm-service";
 
@@ -274,19 +275,27 @@ export function AdminSettingsPage() {
   };
 
   const handleDeleteStaffKey = async (staff: StaffMember) => {
-    if (confirm(`Are you sure you want to remove CRM access for ${staff.name}?`)) {
-      const ok = await revokeStaffAccess(staff.key);
+    if (staff.status === "active") {
+      toast.warning("Revoke this staff member first", {
+        description: `${staff.name} still has active CRM access. Revoke the staff member before deleting them.`,
+      });
+      return;
+    }
+    if (confirm(`Delete ${staff.name}'s CRM staff record? This cannot be undone.`)) {
+      const ok = await deleteStaffAssignment(staff.key, staff.id);
       if (!ok) {
-        toast.error("Could not remove access");
+        toast.error("Could not delete this staff record", {
+          description: "Firestore rejected the change. Check your connection and try again.",
+        });
         return;
       }
-      toast.success(`Removed ${staff.name} from the sales team`);
+      toast.success(`Deleted ${staff.name} from the sales team`);
       void logActivity({
         eventType: "USER_UPDATE",
         targetType: "user",
         targetId: staff.id,
-        summary: `Removed CRM staff access for ${staff.email}`,
-        details: { staffKey: staff.key, action: "staff_removed" },
+        summary: `Deleted CRM staff record for ${staff.email}`,
+        details: { staffKey: staff.key, action: "staff_deleted" },
       });
       void refreshStaff();
     }
@@ -990,6 +999,11 @@ export function AdminSettingsPage() {
                               variant="ghost"
                               size="sm"
                               className="h-7 w-7 p-0 text-coral hover:bg-coral/10 rounded-full"
+                              title={
+                                staff.status === "active"
+                                  ? "Revoke this staff member first before deleting"
+                                  : "Delete staff record"
+                              }
                               onClick={() => handleDeleteStaffKey(staff)}
                             >
                               <Trash2 className="size-3.5" />
