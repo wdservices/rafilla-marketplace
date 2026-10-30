@@ -63,12 +63,14 @@ export function normalizeBackendMountPath(pathname: string): string {
 
 /**
  * Should this request get the mount-root status document instead of routing?
- * True for the exact mount path (/api, unstripped arrival) and for / with the
- * api-root marker the public_html rewrite adds (stripped arrival). Everything
- * else routes normally — in particular a bare / still serves the homepage.
+ * True for the exact mount path in BOTH spellings (/api and /api/ — browsers
+ * and monitors type the trailing slash, and the public_html rewrite rewrites
+ * it to /api/?api-root=1) and for / with the api-root marker the rewrite adds
+ * on stripped arrivals. Everything else routes normally — in particular a
+ * bare / still serves the homepage, and /api/<forwarded-page> still SSRs.
  */
 export function isApiRootRequest(pathname: string, search: string): boolean {
-  if (pathname === "/api") return true;
+  if (pathname === "/api" || pathname === "/api/") return true;
   if (pathname !== "/") return false;
   return new URLSearchParams(search).has("api-root");
 }
